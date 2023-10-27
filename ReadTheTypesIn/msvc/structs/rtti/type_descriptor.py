@@ -1,10 +1,9 @@
 from typing import Optional, Generator, Self
 from collections import Counter
-import traceback
 import binaryninja as bn
-from ...types import CheckedTypeDataVar
-from ..utils import get_data_sections
-from ..demangler import run_demumbler
+from ....types import CheckedTypeDataVar
+from ....name import TypeName
+from ...utils import get_data_sections
 
 TYPE_DESCRIPTOR_NAME_PREFIX = '.?A'
 CLASS_TYPE_ID_PREFIX = TYPE_DESCRIPTOR_NAME_PREFIX + 'V'
@@ -17,7 +16,9 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
     ('void*', 'pVFTable'),
     ('void*', 'spare'),
     ('unsigned char[1]', 'name'),
-], packed=True):
+]):
+    packed = True
+
     decorated_name: str
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
@@ -31,19 +32,9 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
     @property
     def type_name(self):
         try:
-            return TypeDescriptor.demangle_typeid(self.decorated_name)
-        except ValueError:
+            return TypeName.parse_from_msvc_type_descriptor_name(self.decorated_name)
+        except Exception:
             return None
-
-    @property
-    def type_name_without_prefix(self):
-        if (type_name := self.type_name) is None:
-            return None
-        
-        return type_name.replace(
-            "class " if self.is_class else "struct ",
-            "",
-        )
 
     @property
     def is_class(self) -> bool:
@@ -65,18 +56,9 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
 
         return super().__getitem__(key)
 
-    @staticmethod
-    def demangle_typeid(name: str) -> str:
-        if not name.startswith(
-            (CLASS_TYPE_ID_PREFIX, STRUCT_TYPE_ID_PREFIX)
-        ) or not name.endswith('@@'):
-            raise ValueError('Name is not a decorated typeid name')
-
-        return run_demumbler(name).rpartition(' `RTTI')[0]
-
     @property
     def symbol_name(self):
-        return f"{self.type_name} `RTTI Type Descriptor'"
+        return f"{self.type_name.name} `RTTI Type Descriptor'"
 
     def mark_down_members(self):
         self.view.define_user_data_var(
@@ -149,6 +131,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
                     f'Failed to define type descriptor @ 0x{accessor.address:x}',
                     'TypeDescriptor::search',
                 )
+                import traceback
                 traceback.print_exc()
                 continue
 
@@ -156,7 +139,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
                 f'Defined type descriptor @ 0x{accessor.address:x}',
                 'TypeDescriptor::search',
             )
-        
+
         if task is not None:
             task.progress = f'{cls.name} search finished'
 

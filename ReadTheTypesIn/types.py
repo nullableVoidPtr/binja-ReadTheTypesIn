@@ -1,40 +1,40 @@
 from typing import (
     Optional,
-    Mapping, Sequence,
+    Mapping,
     ClassVar, Self,
     TypeVar, Generic, get_origin, get_args
 )
 from functools import cache
+from weakref import WeakKeyDictionary
 from types import GenericAlias
 import binaryninja as bn
 from .name import TypeName
-from .msvc.utils import uses_relative_rtti, resolve_rtti_offset
+from .msvc.utils import uses_relative_rtti, resolve_rtti_offset, get_function
 
 class CheckedTypeDataVar:
     name: ClassVar[str]
     alt_name: ClassVar[str]
 
-    packed: ClassVar[bool]
-    members: ClassVar[Sequence[tuple[bn.Type, str]]]
+    packed: ClassVar[bool] = False
+    members: ClassVar[list[tuple[bn.Type, str]]]
     relative_members: ClassVar[Mapping[str, bn.Type]]
 
-    __instances__: ClassVar[Mapping]
+    __instances__: ClassVar[Mapping[bn.BinaryView, Mapping[int, Self]]]
 
     source: bn.TypedDataAccessor
 
     def __init_subclass__(
         cls,
-        name=None, alt_name=None,
         alignment=None,
         members: list[tuple[bn.Type, str]] = None,
-        packed=False,
         **kwargs
     ):
-        cls.name = name or cls.__name__
-        cls.alt_name = alt_name or f'_{cls.name}'
+        if not hasattr(cls, 'name'):
+            cls.name = cls.__name__
+        if not hasattr(cls, 'alt_name'):
+            cls.alt_name = f'_{cls.name}'
 
         assert members is not None, f"Members of {cls.name} must be specified"
-        cls.packed = packed
         cls.members = members
         cls.relative_members = {
             name: target
@@ -43,14 +43,14 @@ class CheckedTypeDataVar:
         }
 
         if getattr(cls, '__instances__', None) is None:
-            cls.__instances__ = {}
+            cls.__instances__ = WeakKeyDictionary()
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         if isinstance(source, bn.TypedDataAccessor):
             user_struct = self.get_user_struct(source.view)
-            if source.type is not user_struct:
+            if source.type != user_struct:
                 raise TypeError(
-                    f"Expected type of accessor to be {user_struct}, got {source.type}"
+                    f"Expected type of accessor to be {repr(user_struct)}, got {repr(source.type)}"
                 )
         else:
             source = view.typed_data_accessor(
@@ -71,13 +71,16 @@ class CheckedTypeDataVar:
             )
         )
 
-        if uses_relative_rtti(self.view) and key in self.relative_members:
+        if key in self.relative_members:
             target_type = self.relative_members[key]
             if NamedCheckedTypeRef.get_target(target_type) is not None:
                 if (resolved := NamedCheckedTypeRef.resolve(target_type)) is None:
                     raise TypeError(f'Cannot resolve {target_type}')
 
                 target_type = resolved
+            elif isinstance(target_type, str):
+                target_type = get_cached_type(self.view, target_type)
+
 
             member_source = resolve_rtti_offset(
                 self.view,
@@ -92,6 +95,9 @@ class CheckedTypeDataVar:
                 self.view,
                 member_source,
             )
+
+        if isinstance(target_type, bn.FunctionType):
+            return get_function(self.view, member_source)
 
         if isinstance(member_source, int):
             member_source = self.view.typed_data_accessor(
@@ -115,23 +121,30 @@ class CheckedTypeDataVar:
 
     @property
     def defined(self) -> bool:
-        if (old_var := self.view.get_data_var_at(self.address)) is not None:
-            if old_var.type != self.type:
-                return False
+        if (old_var := self.view.get_data_var_at(self.address)) is None:
+            return False
 
-            if self.symbol_name is not None and old_var.name != self.symbol_name:
-                return False
+        if old_var.type != self.type:
+            return False
 
+        expected_symbol_name = self.symbol_name
+        if expected_symbol_name is None:
             return True
 
-        return False
+        if isinstance(expected_symbol_name, str):
+            return old_var.name == expected_symbol_name
+
+        if tuple(old_var.symbol.namespace.name) != tuple(expected_symbol_name.namespace.name):
+            return False
+
+        return old_var.symbol.short_name == expected_symbol_name.short_name
 
     @property
-    def type_name(self) -> Optional[str]:
+    def type_name(self) -> Optional[TypeName]:
         return None
 
     @property
-    def symbol_name(self) -> Optional[str]:
+    def symbol_name(self) -> Optional[str | bn.Symbol]:
         return None
 
     def mark_down(self):
@@ -142,6 +155,11 @@ class CheckedTypeDataVar:
                     self.type,
                     self.symbol_name,
                 )
+                if self.type_name is not None:
+                    component = self.type_name.get_component(self.view)
+                    component.add_data_variable(
+                        self.view.get_data_var_at(self.address)
+                    )
             except Exception as e:
                 raise ValueError(
                     f"Failed to define {self.name} @ {self.address:x}"
@@ -151,78 +169,157 @@ class CheckedTypeDataVar:
     def mark_down_members(self):
         for name in self.relative_members:
             member = self[name]
-            if member.defined:
-                continue
+            if isinstance(member, CheckedTypeDataVar):
+                if member.defined:
+                    continue
 
-            try:
-                member.mark_down()
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to define {self.name}.{name} @ {self[name].address:x}"
-                ) from e
+                try:
+                    member.mark_down()
+                except Exception as e:
+                    raise ValueError(
+                        f"Failed to define {self.name}.{name} @ {self[name].address:x}"
+                    ) from e
 
     @classmethod
-    def create(cls, view: bn.BinaryView, source: bn.TypedDataAccessor | int, *args, **kwargs) -> Self:
+    def create(
+        cls,
+        view: bn.BinaryView,
+        source: bn.TypedDataAccessor | int,
+        *args, **kwargs) -> Self:
         if isinstance(source, bn.TypedDataAccessor):
             address = source.address
         else:
             address = source
 
-        if address in cls.__instances__:
-            return cls.__instances__[address]
+        view_instances = cls.__instances__.setdefault(view, {})
+        if address in view_instances:
+            return view_instances[address]
 
         obj = object.__new__(cls, view, source, *args, **kwargs)
-        cls.__instances__[address] = obj
+        view_instances[address] = obj
         try:
+            # pylint: disable-next=unnecessary-dunder-call
             obj.__init__(view, source, *args, **kwargs)
-            cls.__instances__[address] = obj
             return obj
         except Exception as e:
-            cls.__instances__.pop(address, None)
+            view_instances.pop(address, None)
             raise ValueError(f"Failed to create {cls.__name__} @ {address:x}") from e
 
     @classmethod
-    def define_user_type(cls, view: bn.BinaryView):
-        with bn.StructureBuilder.builder(view, cls.alt_name) as builder:
-            builder.packed = cls.packed
-            for mtype, mname in cls.members:
-                # pylint: disable-next=no-member
-                builder.append(get_cached_type(view, mtype), mname)
+    def define_structure(cls, view: bn.BinaryView) -> bn.StructureType:
+        session_data_key = f'ReadTheTypesIn.{cls.alt_name}.defined'
+        old_type = view.types.get(cls.alt_name)
+        if view.session_data.get(session_data_key):
+            return old_type
 
-        view.define_user_type(cls.name, bn.Type.named_type_from_registered_type(
-            view, cls.alt_name
-        ))
+        builder = bn.StructureBuilder.create()
+        builder.packed = cls.packed
+        for mtype, mname in cls.members:
+            # pylint: disable-next=no-member
+            builder.append(get_cached_type(view, mtype), mname)
+
+        # pylint: disable-next=no-member
+        structure = builder.immutable_copy()
+
+        if old_type is not None:
+            members = old_type.members
+            if len(members) == len(structure.members):
+                for member, (expected_type, expected_name) in zip(members, structure.members):
+                    if member.name != expected_name:
+                        break
+
+                    expected_type = get_cached_type(view, expected_type)
+                    if member.type != expected_type:
+                        print(f"{member.type=} {expected_type=}")
+                        break
+                else:
+                    return old_type
+
+        view.define_user_type(cls.alt_name, structure)
+        view.session_data[session_data_key] = True
+
+        return view.types.get(cls.alt_name)
+
+    @classmethod
+    def define_typedef(cls, view: bn.BinaryView):
+        session_data_key = f'ReadTheTypesIn.{cls.name}.defined'
+        if view.session_data.get(session_data_key):
+            return
+
+        struct_ref = cls.get_struct_ref(view)
+        if (old_typedef := view.types.get(cls.name)) is not None:
+            if isinstance(old_typedef, bn.types.NamedReferenceType):
+                target = old_typedef.target(view)
+                if target == struct_ref:
+                    return
+
+        view.define_user_type(cls.name, struct_ref)
+        view.session_data[session_data_key] = True
+
+    @classmethod
+    def define_user_type(cls, view: bn.BinaryView):
+        cls.define_structure(view)
+        cls.define_typedef(view)
 
     @property
     def address(self) -> int:
         return self.source.address
 
     @classmethod
-    @cache
     def get_user_struct(cls, view: bn.BinaryView) -> bn.Type:
-        cls.define_user_type(view)
+        cls.define_structure(view)
         return view.get_type_by_name(cls.alt_name)
 
     @classmethod
-    @cache
     def get_struct_ref(cls, view: bn.BinaryView) -> bn.NamedTypeReferenceType:
-        cls.define_user_type(view)
+        cls.define_structure(view)
         return bn.Type.named_type_from_registered_type(view, cls.alt_name)
 
     @classmethod
-    @cache
     def get_typedef_ref(cls, view: bn.BinaryView) -> bn.NamedTypeReferenceType:
-        cls.define_user_type(view)
+        cls.define_typedef(view)
         return bn.Type.named_type_from_registered_type(view, cls.name)
 
     @classmethod
-    @cache
     def get_alignment(cls, view: bn.BinaryView) -> int:
-        return cls.get_user_struct(view).members[0].type.width
+        return cls.get_user_struct(view).alignment
+
+    @classmethod
+    def get_instances(cls, view: bn.BinaryView) -> list[Self]:
+        if (view_instances := cls.__instances__.get(view)) is None:
+            return []
+
+        return list(view_instances.values())
 
 MemberTypeSpec = str | bn.Type | type[CheckedTypeDataVar] | type['RTTIOffsetType']
 
 T = TypeVar('T')
+class Array(Generic[T]):
+    @classmethod
+    def get_element_type(cls, type_spec) -> Optional[MemberTypeSpec]:
+        if get_origin(type_spec) is not cls:
+            return None
+
+        args = get_args(type_spec)
+        assert args is not None
+        return args[0]
+
+    @classmethod
+    def get_size(cls, type_spec) -> Optional[MemberTypeSpec]:
+        if get_origin(type_spec) is not cls:
+            return None
+
+        args = get_args(type_spec)
+        assert args is not None
+        if len(args) < 2 or args[1] is Ellipsis:
+            return None
+
+        return args[1]
+
+    @classmethod
+    def __class_getitem__(cls, key: str):
+        return GenericAlias(cls, (key,))
+
 class RTTIOffsetType(Generic[T]):
     @classmethod
     def get_target(cls, type_spec) -> Optional[MemberTypeSpec]:
@@ -232,7 +329,7 @@ class RTTIOffsetType(Generic[T]):
         args = get_args(type_spec)
         assert args is not None
         return args[0]
- 
+
     @classmethod
     def get_relative_type(cls, type_spec) -> Optional[MemberTypeSpec]:
         if get_origin(type_spec) is not cls:
@@ -241,6 +338,33 @@ class RTTIOffsetType(Generic[T]):
         args = get_args(type_spec)
         assert args is not None
         return 'int' if len(args) < 2 else args[1]
+
+    @classmethod
+    def __class_getitem__(cls, key: str):
+        return GenericAlias(cls, (key,))
+
+class EHOffsetType(Generic[T]):
+    @classmethod
+    def get_target(cls, type_spec) -> Optional[MemberTypeSpec]:
+        if get_origin(type_spec) is not cls:
+            return None
+
+        args = get_args(type_spec)
+        assert args is not None
+        return args[0]
+
+    @classmethod
+    def get_relative_type(cls, type_spec) -> Optional[MemberTypeSpec]:
+        if get_origin(type_spec) is not cls:
+            return None
+
+        args = get_args(type_spec)
+        assert args is not None
+        return 'int' if len(args) < 2 else args[1]
+
+    @classmethod
+    def __class_getitem__(cls, key: str):
+        return GenericAlias(cls, (key,))
 
 class NamedCheckedTypeRef():
     @classmethod
@@ -335,7 +459,19 @@ class RelativeOffsetRenderer(bn.DataRenderer):
         value = view.typed_data_accessor(address, _type).value
         target = resolve_rtti_offset(view, value)
 
-        if (var := view.get_data_var_at(target)) is not None:
+        if value == 0:
+            token = bn.InstructionTextToken(
+                bn.InstructionTextTokenType.KeywordToken,
+                "nullptr",
+                target,
+            )
+        elif (var := view.get_function_at(target)) is not None:
+            token = bn.InstructionTextToken(
+                bn.InstructionTextTokenType.CodeSymbolToken,
+                var.name or f"sub_{target:x}",
+                target,
+            )
+        elif (var := view.get_data_var_at(target)) is not None:
             token = bn.InstructionTextToken(
                 bn.InstructionTextTokenType.DataSymbolToken,
                 var.name or f"data_{target:x}",
@@ -376,9 +512,10 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
 
         return 0
 
-    def find_checked_type(self, view: bn.BinaryView, _type: bn.Type) -> bool:
+    def find_checked_type(self, view: bn.BinaryView, _type: bn.Type) \
+        -> Optional[type[CheckedTypeDataVar]]:
         if not uses_relative_rtti(view):
-            return False
+            return None
 
         return next(
             (

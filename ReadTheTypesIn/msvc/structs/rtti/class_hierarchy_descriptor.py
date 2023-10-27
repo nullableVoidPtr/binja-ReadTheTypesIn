@@ -1,11 +1,15 @@
+from enum import IntFlag
 import binaryninja as bn
-from ...types import CheckedTypeDataVar, RTTIOffsetType
-from ..utils import resolve_rtti_offset
+from ....types import CheckedTypeDataVar, RTTIOffsetType
+from ...utils import resolve_rtti_offset
 from .base_class_descriptor import BaseClassArray
 
+class CHDAttributes(IntFlag):
+    MULTINH   = 0x00000001
+    VIRTINH   = 0x00000002
+    AMBIGUOUS = 0x00000004
+
 class ClassHierarchyDescriptor(CheckedTypeDataVar,
-    name='_RTTIClassHierarchyDescriptor',
-    alt_name='_s_RTTIClassHierarchyDescriptor',
     members=[
         ('unsigned long', 'signature'),
         ('unsigned long', 'attributes'),
@@ -13,7 +17,10 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         (RTTIOffsetType[BaseClassArray], 'pBaseClassArray'),
     ]
 ):
-    attributes: int
+    name = '_RTTIClassHierarchyDescriptor'
+    alt_name = '_s_RTTIClassHierarchyDescriptor'
+
+    attributes: CHDAttributes
     base_class_array: BaseClassArray
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
@@ -21,12 +28,8 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         if self['signature'].value != 0:
             raise ValueError('Invalid signature')
 
-        self.attributes = self['attributes'].value
+        self.attributes = CHDAttributes(self['attributes'].value)
         self.base_class_array = self['pBaseClassArray']
-
-        # for bcd in self.base_class_array:
-        #     if bcd.type_descriptor is not bcd.class_hierarchy_descriptor.base_class_array[0].type_descriptor:
-        #         raise ValueError('Class hierarchy descriptors do not match')
 
     def __getitem__(self, key: str):
         if key == 'pBaseClassArray':
@@ -50,4 +53,4 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         if self.type_name is None:
             return None
 
-        return f"{self.type_name}::`RTTI Class Hierarchy Descriptor'"
+        return f"{self.type_name.name}::`RTTI Class Hierarchy Descriptor'"

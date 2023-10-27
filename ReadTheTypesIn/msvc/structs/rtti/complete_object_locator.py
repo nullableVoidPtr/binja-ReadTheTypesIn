@@ -1,9 +1,8 @@
 from typing import Optional, Generator, Self
-from functools import cache
 import traceback
 import binaryninja as bn
-from ..utils import get_data_sections, uses_relative_rtti, encode_rtti_offset
-from ...types import CheckedTypeDataVar, RTTIOffsetType, NamedCheckedTypeRef
+from ....types import CheckedTypeDataVar, RTTIOffsetType, NamedCheckedTypeRef
+from ...utils import get_data_sections, uses_relative_rtti, encode_rtti_offset, resolve_rtti_offset
 from .type_descriptor import TypeDescriptor
 from .class_hierarchy_descriptor import ClassHierarchyDescriptor
 
@@ -27,10 +26,12 @@ class _CompleteObjectLocatorBase():
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
         self.offset = self['offset'].value
-        self.complete_displacement_offset= self['cdOffset'].value
+        self.complete_displacement_offset = self['cdOffset'].value
         self.type_descriptor = self['pTypeDescriptor']
         self.class_hierarchy_descriptor = self['pClassDescriptor']
-        if self.type_descriptor is not self.class_hierarchy_descriptor.base_class_array[0].type_descriptor:
+
+        bca = self.class_hierarchy_descriptor.base_class_array
+        if self.type_descriptor is not bca[0].type_descriptor:
             raise ValueError('Type descriptors do not match')
 
     @property
@@ -38,30 +39,30 @@ class _CompleteObjectLocatorBase():
         if self.offset > 0:
             return None
 
-        return self.type_descriptor.type_name_without_prefix
+        return self.type_descriptor.type_name
 
     @property
     def symbol_name(self):
         if self.type_name is None:
             return None
 
-        return f"{self.type_name}::`RTTI Complete Object Locator'"
+        return f"{self.type_name.name}::`RTTI Complete Object Locator'"
 
 class _CompleteObjectLocator(_CompleteObjectLocatorBase, CheckedTypeDataVar,
-    name='_s_RTTICompleteObjectLocator',
-    alt_name='_s__RTTICompleteObjectLocator',
     members=COMPLETE_OBJECT_LOCATOR_MEMBERS,
 ):
-    pass
+    name = '_s_RTTICompleteObjectLocator'
+    alt_name = '_s__RTTICompleteObjectLocator'
 
 class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
-    name='_s_RTTICompleteObjectLocator2',
-    alt_name='_s__RTTICompleteObjectLocator2',
     members=[
         *COMPLETE_OBJECT_LOCATOR_MEMBERS,
         (RTTIOffsetType[NamedCheckedTypeRef['_s_RTTICompleteObjectLocator2']], 'pSelf'),
     ],
 ):
+    name = '_s_RTTICompleteObjectLocator2'
+    alt_name = '_s__RTTICompleteObjectLocator2'
+
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
         if self.source['pSelf'].value != encode_rtti_offset(view, self.address):
@@ -76,39 +77,47 @@ class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
 
 class CompleteObjectLocator:
     name = '_RTTICompleteObjectLocator'
-    
+
     @classmethod
     def create(cls, view: bn.BinaryView, *args, **kwargs):
         return cls.get_actual_type(view).create(view, *args, **kwargs)
 
     @classmethod
-    @cache
     def get_actual_type(cls, view: bn.BinaryView) -> type[_CompleteObjectLocatorBase]:
         return _CompleteObjectLocator2 if uses_relative_rtti(view) else _CompleteObjectLocator
-    
+
     @classmethod
     def get_signature_rev(cls, view: bn.BinaryView) -> int:
         return COL_SIG_REV1 if uses_relative_rtti(view) else COL_SIG_REV0
 
     @classmethod
     def define_user_type(cls, view: bn.BinaryView) -> bn.Type:
-        view.define_user_type(cls.name, cls.get_actual_type(view).get_typedef_ref(view))
+        session_data_key = f'ReadTheTypesIn.{cls.name}.defined'
+        if view.session_data.get(session_data_key):
+            return
+
+        struct_ref = cls.get_actual_type(view).get_struct_ref(view)
+        if (old_typedef := view.types.get(cls.name)) is not None:
+            if isinstance(old_typedef, bn.types.NamedReferenceType):
+                target = old_typedef.target(view)
+                if target == struct_ref:
+                    return
+
+        view.define_user_type(cls.name, struct_ref)
+        view.session_data[session_data_key] = True
 
     @classmethod
-    @cache
     def get_user_struct(cls, view: bn.BinaryView) -> bn.Type:
         return cls.get_actual_type(view).get_user_struct(view)
 
     @classmethod
-    @cache
     def get_typedef_ref(cls, view: bn.BinaryView) -> bn.Type:
         cls.define_user_type(view)
         return bn.Type.named_type_from_registered_type(view, cls.name)
 
     @classmethod
-    @cache
     def get_alignment(cls, view: bn.BinaryView) -> int:
-        return cls.get_user_struct(view).members[0].type.width
+        return cls.get_actual_type(view).get_alignment(view)
 
     @classmethod
     def search_with_type_descriptors(
@@ -122,16 +131,31 @@ class CompleteObjectLocator:
             if not desc.decorated_name.startswith(".?AV<lambda")
         )
 
+        data_sections = list(get_data_sections(view))
         user_struct = cls.get_user_struct(view)
 
+        invalid_pchds = set()
         matches = []
         def update_progress(processed: int, total: int) -> bool:
             task.progress = f'{cls.name} search {processed:x}/{total:x}'
             return not task.cancelled
 
         def is_potential_complete_object_locator(accessor: bn.TypedDataAccessor) -> bool:
-            offset = accessor['pTypeDescriptor'].value
-            if offset not in type_desc_offsets:
+            if accessor.address % cls.get_alignment(view) != 0:
+                return False
+
+            td_offset = accessor['pTypeDescriptor'].value
+            if td_offset not in type_desc_offsets:
+                return False
+
+            chd_offset = accessor['pClassDescriptor'].value
+            if chd_offset in invalid_pchds or not any(
+                section in data_sections
+                for section in view.get_sections_at(
+                    resolve_rtti_offset(view, chd_offset)
+                )
+            ):
+                invalid_pchds.add(chd_offset)
                 return False
 
             if any(member.name == 'pSelf' for member in user_struct.members):
@@ -152,7 +176,7 @@ class CompleteObjectLocator:
             'little' if view.endianness is bn.Endianness.LittleEndian else 'big'
         )
 
-        for section in get_data_sections(view):
+        for section in data_sections:
             view.find_all_data(
                 section.start, section.end,
                 signature,
@@ -170,7 +194,11 @@ class CompleteObjectLocator:
                     f'Failed to define complete object locator @ 0x{accessor.address:x}',
                     'CompleteObjectLocator::search_with_type_descriptors',
                 )
-                traceback.print_exc()
+                bn.log.log_debug(
+                    traceback.format_exc(),
+                    'CompleteObjectLocator::search_with_type_descriptors',
+                )
+
                 continue
 
             bn.log.log_debug(

@@ -1,30 +1,34 @@
 from typing import Optional, Generator, Self
-import traceback
+from weakref import WeakKeyDictionary
 import binaryninja as bn
-from ..utils import get_data_sections
-from .complete_object_locator import CompleteObjectLocator
+from ..utils import get_data_sections, get_function
+from .rtti.complete_object_locator import CompleteObjectLocator
 
 PATTERN_SHIFT_SIZE = 3
 
 class VirtualFunctionTable:
-    __instances__ = {}
+    __instances__ = WeakKeyDictionary()
+
     meta: CompleteObjectLocator
+    for_base_class: Optional['VisualCxxClass']
+    method_addresses: list[int]
 
     def __init__(self, view: bn.BinaryView, address: int):
         self.view = view
         self.address = address
+        self.for_base_class = None
 
         try:
             self.meta = CompleteObjectLocator.create(
                 view,
                 view.read_pointer(self.address - self.view.address_size),
             )
-        except:
+        except ValueError:
             self.meta = None
 
         self.method_addresses = []
         offset = 0
-        while self.try_define_function(
+        while get_function(
             self.view,
             method_address := self.view.read_pointer(
                 self.address + offset
@@ -32,6 +36,17 @@ class VirtualFunctionTable:
         ) is not None:
             self.method_addresses.append(method_address)
             offset += self.view.address_size
+
+    @property
+    def name(self):
+        suffix = ''
+        if self.type_name is None:
+            if self.for_base_class is None:
+                return None
+
+            suffix = f"{{for `{self.for_base_class.type_name}'}}"
+
+        return f"{self.type_name.name}::`vftable'{suffix}"
 
     @property
     def type(self):
@@ -44,7 +59,7 @@ class VirtualFunctionTable:
                 self.view.arch,
                 CompleteObjectLocator.get_typedef_ref(self.view),
             ),
-            "meta"
+            "meta",
         )
 
         for address in self.method_addresses:
@@ -61,19 +76,19 @@ class VirtualFunctionTable:
 
     @classmethod
     def create(cls, view: bn.BinaryView, address: int, *args, **kwargs):
-        if address in cls.__instances__:
-            return cls.__instances__[address]
+        view_instances = cls.__instances__.setdefault(view, {})
+        if address in view_instances:
+            return view_instances[address]
 
         obj = object.__new__(cls, view, address, *args, **kwargs)
-        cls.__instances__[address] = obj
+        view_instances[address] = obj
         try:
+            # pylint:disable-next=unnecessary-dunder-call
             obj.__init__(view, address, *args, **kwargs)
-            cls.__instances__[address] = obj
             return obj
         except Exception as e:
-            cls.__instances__.pop(address, None)
+            view_instances.pop(address, None)
             raise ValueError(f"Failed to create {cls.__name__} @ {address:x}") from e
-
 
     @property
     def type_name(self):
@@ -81,23 +96,7 @@ class VirtualFunctionTable:
 
     @property
     def symbol_name(self):
-        return f"{self.type_name}::`vftable'"
-
-    @staticmethod
-    def try_define_function(view: bn.BinaryView, address: int):
-        if not any(
-            section.semantics == bn.SectionSemantics.ReadOnlyCodeSectionSemantics
-            for section in view.get_sections_at(address)
-        ):
-            return None
-
-        if view.get_data_var_at(address) is not None:
-            return None
-
-        if (func := view.get_function_at(address)) is not None:
-            return func
-
-        return view.create_user_function(address)
+        return f"{self.type_name.name}::`vftable'"
 
     @classmethod
     def search_with_complete_object_locators(
@@ -117,22 +116,28 @@ class VirtualFunctionTable:
             return not task.cancelled
 
         def is_potential_vftable(address: int):
+            if address % view.address_size != 0:
+                return False
+
             meta_address = address - view.address_size
             if meta_address % view.address_size != 0:
                 return False
 
-            if view.read_pointer(
-                meta_address
-            ) not in pointers:
+            try:
+                if view.read_pointer(
+                    meta_address
+                ) not in pointers:
+                    return False
+            except ValueError:
                 return False
-            
-            if view.get_function_at(
-                func_addr := view.read_pointer(
+
+            if get_function(
+                view,
+                view.read_pointer(
                     address
                 )
             ) is None:
-                if cls.try_define_function(view, func_addr) is None:
-                    return False
+                return False
 
             return True
 
@@ -144,7 +149,7 @@ class VirtualFunctionTable:
                 matches.append(address)
 
             return True
-        
+
         patterns = set(
             (address >> (8 * PATTERN_SHIFT_SIZE)).to_bytes(
                 view.address_size - PATTERN_SHIFT_SIZE,
@@ -170,7 +175,11 @@ class VirtualFunctionTable:
                     f'Failed to define virtual function table @ 0x{address:x}',
                     'VirtualFunctionTable::search',
                 )
-                traceback.print_exc()
+                bn.log.log_debug(
+                    f'Defined catchable type @ 0x{address:x}',
+                    'VirtualFunctionTable::search',
+                )
+
                 continue
 
             bn.log.log_debug(

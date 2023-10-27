@@ -28,3 +28,18 @@ def resolve_rtti_offset(view: bn.BinaryView, offset: int) -> int:
         return view.start + offset
 
     return offset
+
+def get_function(view: bn.BinaryView, address: int):
+    if not any(
+        section.semantics == bn.SectionSemantics.ReadOnlyCodeSectionSemantics
+        for section in view.get_sections_at(address)
+    ):
+        return None
+
+    if (func := view.get_function_at(address)) is not None:
+        return func
+
+    if view.get_data_var_at(address) is not None:
+        return None
+
+    return view.create_user_function(address)

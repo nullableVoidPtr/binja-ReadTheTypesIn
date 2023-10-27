@@ -13,8 +13,8 @@ class Searcher(BackgroundTaskThread):
         self.func = func
 
     def run(self):
-        with self.view.undoable_transaction():
-            self.func(self.view, task=self)
+        self.func(self.view, task=self)
+        self.view.update_analysis()
 
 def as_task(func: Callable[[BackgroundTask, BinaryView], None]):
     def start(view: BinaryView):
@@ -28,9 +28,4 @@ PluginCommand.register(
     f"{PLUGIN_NAME}\\Search COLs",
     "Search",
     as_task(msvc.search)
-)
-PluginCommand.register(
-    f"{PLUGIN_NAME}\\Define",
-    "Define",
-    msvc.CompleteObjectLocator.define_user_type
 )

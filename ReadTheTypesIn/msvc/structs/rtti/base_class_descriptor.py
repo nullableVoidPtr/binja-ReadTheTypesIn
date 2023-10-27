@@ -1,6 +1,8 @@
+from typing import Optional
+from enum import IntFlag
 import binaryninja as bn
-from ...types import CheckedTypeDataVar, RTTIOffsetType, NamedCheckedTypeRef
-from ..utils import resolve_rtti_offset
+from ....types import CheckedTypeDataVar, RTTIOffsetType, NamedCheckedTypeRef
+from ...utils import resolve_rtti_offset
 from .type_descriptor import TypeDescriptor
 
 class PMD(CheckedTypeDataVar, members=[
@@ -14,9 +16,16 @@ class PMD(CheckedTypeDataVar, members=[
         self.pdisp = self['pdisp'].value
         self.vdisp = self['vdisp'].value
 
+class BCDAttributes(IntFlag):
+    NOTVISIBLE          = 0x00000001
+    AMBIGUOUS           = 0x00000002
+    PRIVORPROTBASE      = 0x00000004
+    PRIVORPROTINCOMPOBJ = 0x00000008
+    VBOFCONTOBJ         = 0x00000010
+    NONPOLYMORPHIC      = 0x00000020
+    HASPCHD             = 0x00000040
+
 class BaseClassDescriptor(CheckedTypeDataVar,
-    name='_RTTIBaseClassDescriptor',
-    alt_name='_s_RTTIBaseClassDescriptor',
     members=[
         (RTTIOffsetType[TypeDescriptor], 'pTypeDescriptor'),
         ('unsigned long', 'numContainedBases'),
@@ -27,23 +36,29 @@ class BaseClassDescriptor(CheckedTypeDataVar,
         ], 'pClassDescriptor'),
     ],
 ):
+    name = '_RTTIBaseClassDescriptor'
+    alt_name = '_s_RTTIBaseClassDescriptor'
+
     type_descriptor: TypeDescriptor
     num_contained_bases: int
     where: PMD
-    attributes: int
-    class_hierarchy_descriptor: 'ClassHierarchyDescriptor'
+    attributes: BCDAttributes
+    class_hierarchy_descriptor: Optional['ClassHierarchyDescriptor']
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
         self.type_descriptor = self['pTypeDescriptor']
         self.num_contained_bases = self['numContainedBases'].value
         self.where = self['where']
-        self.attributes = self['attributes'].value
-        self.class_hierarchy_descriptor = self['pClassDescriptor']
+        self.attributes = BCDAttributes(self['attributes'].value)
+        if BCDAttributes.HASPCHD in self.attributes:
+            self.class_hierarchy_descriptor = self['pClassDescriptor']
+        else:
+            self.class_hierarchy_descriptor = None
 
     @property
     def type_name(self):
-        return self.type_descriptor.type_name_without_prefix
+        return self.type_descriptor.type_name
 
     @property
     def symbol_name(self):
@@ -51,15 +66,20 @@ class BaseClassDescriptor(CheckedTypeDataVar,
             return None
 
         location = f'({self.where.mdisp},{self.where.pdisp},{self.where.vdisp},{self.attributes})'
-        return f"{self.type_name}::`RTTI Base Class Descriptor at {location}'"
+        return f"{self.type_name.name}::`RTTI Base Class Descriptor at {location}'"
+
+    @property
+    def virtual(self) -> bool:
+        return BCDAttributes.VBOFCONTOBJ in self.attributes
 
 class BaseClassArray(CheckedTypeDataVar,
-    name='_RTTIBaseClassArray',
-    alt_name='_s_RTTIBaseClassArray',
     members=[
         (RTTIOffsetType[BaseClassDescriptor], 'arrayOfBaseClassDescriptors'),
     ],
 ):
+    name = '_RTTIBaseClassArray'
+    alt_name = '_s_RTTIBaseClassArray'
+
     length: int
     base_class_array: list[BaseClassDescriptor]
 
@@ -70,9 +90,6 @@ class BaseClassArray(CheckedTypeDataVar,
             self.address,
             self.type
         )
-
-        if self.source[-1].value != 0:
-            raise ValueError("Expected null terminator")
 
         self.base_class_descs = [
             BaseClassDescriptor.create(
@@ -87,7 +104,7 @@ class BaseClassArray(CheckedTypeDataVar,
         pointer_type = self.get_user_struct(self.view)['arrayOfBaseClassDescriptors'].type
         return bn.Type.array(
             pointer_type,
-            len(self) + 1,
+            len(self),
         )
 
     def __len__(self):
@@ -95,6 +112,9 @@ class BaseClassArray(CheckedTypeDataVar,
 
     def __iter__(self):
         return iter(self.base_class_descs)
+
+    def __contains__(self, value):
+        return value in self.base_class_descs
 
     def __getitem__(self, key: str | int):
         if isinstance(key, int):
@@ -114,13 +134,14 @@ class BaseClassArray(CheckedTypeDataVar,
         if self.type_name is None:
             return None
 
-        return f"{self.type_name}::`RTTI Base Class Array'"
+        return f"{self.type_name.name}::`RTTI Base Class Array'"
 
     def mark_down_members(self):
+        pointer_type = self.get_user_struct(self.view)['arrayOfBaseClassDescriptors'].type
         for i, bcd in enumerate(self.base_class_descs):
             bcd.mark_down()
             self.view.add_user_data_ref(
-                self.address + (i * self.view.address_size),
+                self.address + (i * pointer_type.width),
                 bcd.address,
             )
 
@@ -137,18 +158,25 @@ class BaseClassArrayRenderer(bn.DataRenderer):
 
     def perform_get_lines_for_data(self, ctxt, view, address, _type, prefix, width, context):
         offsets = view.typed_data_accessor(address, _type)
-        new_prefix = []
-        type_token = None
-        for token in prefix:
+
+        type_tokens = [prefix[0]]
+        if type_tokens[0].type == bn.InstructionTextTokenType.TypeNameToken:
+            type_tokens.append(prefix[1])
+
+        new_prefix = [
+            bn.InstructionTextToken(
+                bn.InstructionTextTokenType.TypeNameToken,
+                BaseClassArray.name,
+            )
+        ]
+
+        for token in prefix[len(type_tokens):]:
             if token.type in [
                 bn.InstructionTextTokenType.BraceToken,
                 bn.InstructionTextTokenType.ArrayIndexToken
             ]:
                 continue
 
-            if token.type == bn.InstructionTextTokenType.KeywordToken:
-                type_token = token
-                token = bn.InstructionTextToken(token.type, BaseClassArray.name)
             new_prefix.append(token)
 
         indent_token = bn.InstructionTextToken(
@@ -179,27 +207,20 @@ class BaseClassArrayRenderer(bn.DataRenderer):
         array_lines = []
         for i, accessor in enumerate(offsets):
             offset = accessor.value
-            if offset == 0:
+            target = resolve_rtti_offset(view, offset)
+
+            if (var := view.get_data_var_at(target)) is not None:
                 value_token = bn.InstructionTextToken(
                     bn.InstructionTextTokenType.DataSymbolToken,
-                    'nullptr',
-                    offset,
+                    var.name or f"data_{target:x}",
+                    target,
                 )
             else:
-                target = resolve_rtti_offset(view, offset)
-
-                if (var := view.get_data_var_at(target)) is not None:
-                    value_token = bn.InstructionTextToken(
-                        bn.InstructionTextTokenType.DataSymbolToken,
-                        var.name or f"data_{target:x}",
-                        target,
-                    )
-                else:
-                    value_token = bn.InstructionTextToken(
-                        bn.InstructionTextTokenType.IntegerToken,
-                        hex(offset),
-                        target,
-                    )
+                value_token = bn.InstructionTextToken(
+                    bn.InstructionTextTokenType.IntegerToken,
+                    hex(offset),
+                    target,
+                )
 
             array_lines.append(
                 bn.DisassemblyTextLine([
@@ -226,7 +247,7 @@ class BaseClassArrayRenderer(bn.DataRenderer):
             ], address),
             bn.DisassemblyTextLine([
                 indent_token,
-                type_token,
+                *type_tokens,
                 bn.InstructionTextToken(
                     bn.InstructionTextTokenType.TextToken,
                     ' ',
@@ -253,60 +274,3 @@ class BaseClassArrayRenderer(bn.DataRenderer):
                 close_brace_token,
             ], address + _type.width),
         ]
-
-class BaseClassArrayListener(bn.BinaryDataNotification):
-    def __init__(self):
-        super().__init__(
-            bn.NotificationType.NotificationBarrier |
-            bn.NotificationType.DataVariableAdded |
-            bn.NotificationType.DataVariableLifetime |
-            bn.NotificationType.DataVariableRemoved |
-            bn.NotificationType.DataVariableUpdated |
-            bn.NotificationType.DataVariableUpdates
-        )
-        self.received_event = False
-
-    def notification_barrier(self, view: bn.BinaryView) -> int:
-        has_events = self.received_event
-        self.received_event = False
-
-        if has_events:
-            return 250
-
-        return 0
-
-    def data_var_added(self, view: bn.BinaryView, var: bn.DataVariable) -> None:
-        self.received_event = True
-        if not var.name or not var.name.endswith("::`RTTI Base Class Array'"):
-            return
-
-        for accessor in view.typed_data_accessor(var.address, var.type):
-            offset = accessor.value
-            view.add_user_data_ref(
-                accessor.address,
-                resolve_rtti_offset(view, offset)
-            )
-
-    def data_var_updated(self, view: bn.BinaryView, var: bn.DataVariable) -> None:
-        self.received_event = True
-        if not var.name or not var.name.endswith("::`RTTI Base Class Array'"):
-            return
-
-        for accessor in view.typed_data_accessor(var.address, var.type):
-            offset = accessor.value
-            view.add_user_data_ref(
-                accessor.address,
-                resolve_rtti_offset(view, offset)
-            )
-
-    def data_var_removed(self, view: bn.BinaryView, var: bn.DataVariable) -> None:
-        self.received_event = True
-        if not var.name or not var.name.endswith("::`RTTI Base Class Array'"):
-            return
-
-        for accessor in view.typed_data_accessor(var.address, var.type):
-            offset = accessor.value
-            view.remove_user_data_ref(
-                accessor.address,
-                resolve_rtti_offset(view, offset)
-            )
