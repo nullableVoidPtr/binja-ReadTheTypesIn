@@ -8,7 +8,7 @@
   "api": [
     "python3"
   ],
-  "description": "Find RTTI and define structs accordingly",
+  "description": "Find RTTI and define structs accordingly.",
   "longdescription": "",
   "license": {
     "name": "MIT",

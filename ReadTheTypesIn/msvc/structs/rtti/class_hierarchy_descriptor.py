@@ -1,18 +1,17 @@
 from enum import IntFlag
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, RTTIOffsetType
-from ...utils import resolve_rtti_offset
+from ....types import CheckedTypeDataVar, Enum, RTTIOffsetType
 from .base_class_descriptor import BaseClassArray
 
 class CHDAttributes(IntFlag):
-    MULTINH   = 0x00000001
-    VIRTINH   = 0x00000002
-    AMBIGUOUS = 0x00000004
+    CHD_MULTINH   = 0x00000001
+    CHD_VIRTINH   = 0x00000002
+    CHD_AMBIGUOUS = 0x00000004
 
 class ClassHierarchyDescriptor(CheckedTypeDataVar,
     members=[
         ('unsigned long', 'signature'),
-        ('unsigned long', 'attributes'),
+        (Enum[CHDAttributes, 'unsigned long'], 'attributes'),
         ('unsigned long', 'numBaseClasses'),
         (RTTIOffsetType[BaseClassArray], 'pBaseClassArray'),
     ]
@@ -28,14 +27,14 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         if self['signature'].value != 0:
             raise ValueError('Invalid signature')
 
-        self.attributes = CHDAttributes(self['attributes'].value)
+        self.attributes = self['attributes']
         self.base_class_array = self['pBaseClassArray']
 
     def __getitem__(self, key: str):
         if key == 'pBaseClassArray':
             return BaseClassArray.create(
                 self.view,
-                resolve_rtti_offset(
+                RTTIOffsetType.resolve_offset(
                     self.view,
                     self.source[key].value
                 ),

@@ -1,7 +1,8 @@
 from typing import Optional, Generator, Self
+import traceback
 from collections import Counter
 import binaryninja as bn
-from ....types import CheckedTypeDataVar
+from ....types import CheckedTypeDataVar, Array
 from ....name import TypeName
 from ...utils import get_data_sections
 
@@ -15,7 +16,7 @@ MAX_NAME_LEN = 2047
 class TypeDescriptor(CheckedTypeDataVar, members=[
     ('void*', 'pVFTable'),
     ('void*', 'spare'),
-    ('unsigned char[1]', 'name'),
+    (Array['char', ...], 'name'),
 ]):
     packed = True
 
@@ -28,6 +29,12 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
             raise ValueError("Invalid TypeDescriptor (non-null spare)")
 
         self.decorated_name = self['name'].value
+
+    def get_array_length(self, name: str):
+        if name == 'name':
+            return len(self.decorated_name) + 1
+
+        super().get_array_length(name)
 
     @property
     def type_name(self):
@@ -59,13 +66,6 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
     @property
     def symbol_name(self):
         return f"{self.type_name.name} `RTTI Type Descriptor'"
-
-    def mark_down_members(self):
-        self.view.define_user_data_var(
-            self.source['name'].address + 1,
-            bn.Type.array(bn.Type.int(1, False), len(self.decorated_name)),
-            f"{self.type_name} `RTTI Type Descriptor'::name",
-        )
 
     @classmethod
     def search(
@@ -131,8 +131,11 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
                     f'Failed to define type descriptor @ 0x{accessor.address:x}',
                     'TypeDescriptor::search',
                 )
-                import traceback
-                traceback.print_exc()
+                bn.log.log_debug(
+                    traceback.format_exc(),
+                    'TypeDescriptor::search_with_type_descriptors',
+                )
+
                 continue
 
             bn.log.log_debug(
@@ -142,46 +145,3 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
 
         if task is not None:
             task.progress = f'{cls.name} search finished'
-
-class TypeDescriptorRenderer(bn.DataRenderer):
-    def perform_is_valid_for_data(self, ctxt, view, address, _type, context):
-        if _type.type_class is not bn.TypeClass.ArrayTypeClass:
-            return False
-
-        if len(context) > 0 and bn.DataRenderer.is_type_of_struct_name(
-            context[-1].type,
-            TypeDescriptor.alt_name,
-            context[:-1]
-        ):
-            return True
-
-        if (sym := view.get_symbol_at(address)) is not None and \
-            sym.name.endswith(" `RTTI Type Descriptor'::name"):
-            return True
-
-        return False
-
-    def perform_get_lines_for_data(self, ctxt, view, address, _type, prefix, width, context):
-        sym = view.get_symbol_at(address)
-        if sym is not None and sym.name.endswith(" `RTTI Type Descriptor'::name"):
-            return [
-                bn.DisassemblyTextLine([], address)
-            ]
-
-        new_prefix = []
-        for token in prefix:
-            if token.type == bn.InstructionTextTokenType.ArrayIndexToken:
-                continue
-
-            if token.type == bn.InstructionTextTokenType.KeywordToken:
-                token = bn.InstructionTextToken(token.type, 'char')
-            new_prefix.append(token)
-        new_prefix.append(bn.InstructionTextToken(bn.InstructionTextTokenType.BraceToken, '"'))
-        new_prefix.append(bn.InstructionTextToken(
-            bn.InstructionTextTokenType.StringToken,
-            view.get_ascii_string_at(address).value,
-        ))
-        new_prefix.append(bn.InstructionTextToken(bn.InstructionTextTokenType.BraceToken, '"'))
-        return [
-            bn.DisassemblyTextLine(new_prefix, address)
-        ]

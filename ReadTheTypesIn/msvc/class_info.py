@@ -6,11 +6,11 @@ from .structs.virtual_function_table import VirtualFunctionTable
 
 class VisualCxxBaseClass:
     where: PMD
-    class_info: 'VisualCxxClass'
+    cls: 'VisualCxxClass'
     base_class_descriptor: BaseClassDescriptor
 
-    def __init__(self, class_info, base_class_descriptor):
-        self.class_info = class_info
+    def __init__(self, cls, base_class_descriptor):
+        self.cls = cls
         self.base_class_descriptor = base_class_descriptor
 
 class VisualCxxClass:
@@ -81,7 +81,11 @@ class VisualCxxClass:
             inheritance_info = " : unknown"
         elif len(base_classes) > 0:
             inheritance_info = " : " + ", ".join(
-                ("virtual " if base.base_class_descriptor.virtual else "") + str(base.class_info.type_name.name)
+                (
+                    "virtual "
+                    if base.base_class_descriptor.virtual
+                    else ""
+                ) + str(base.cls.type_name.name)
                 for base in base_classes
             )
 
@@ -89,3 +93,97 @@ class VisualCxxClass:
 
     def __repr__(self):
         return f"<Visual C++ {self.type_name}>"
+
+    @staticmethod
+    def structure(classes: list['VisualCxxClass'], task: Optional[bn.BackgroundTask] = None):
+        if task is not None:
+            task.progress = 'Structuring classes'
+
+        type_names = {
+            cls.type_name: cls
+            for cls in classes
+        }
+        bcd_to_classes = {
+            bcd: type_names[bcd.type_name]
+            for cls in classes
+            for bcd in cls.class_hierarchy_descriptor.base_class_array
+        }
+
+        resolved = set()
+        changed = False
+        while True:
+            for cls in classes:
+                if cls in resolved:
+                    continue
+
+                class_bcds = list(
+                    cls.class_hierarchy_descriptor.base_class_array
+                )[1:]
+                if not all(
+                    bcd_to_classes[bcd] in resolved
+                    for bcd in class_bcds
+                ):
+                    continue
+
+                if task is not None:
+                    print(f'Structuring {cls.type_name}')
+                    task.progress = f'Structuring {cls.type_name}'
+
+                base_classes = []
+                resolved_indexes = [None] * len(class_bcds)
+                while True:
+                    parent_bca_index = next(
+                        (
+                            i
+                            for i, resolved in enumerate(resolved_indexes)
+                            if resolved is None
+                        ),
+                        None,
+                    )
+                    if parent_bca_index is None:
+                        break
+
+                    parent_bcd = class_bcds[parent_bca_index]
+                    parent_class = bcd_to_classes[parent_bcd]
+                    resolved_indexes[parent_bca_index] = parent_class
+
+                    ancestor_bcds = list(
+                        parent_class.class_hierarchy_descriptor.base_class_array
+                    )[1:]
+
+                    parent_bca_index += 1
+                    for ancestor_bcd in ancestor_bcds:
+                        ancestor_chd = ancestor_bcd.class_hierarchy_descriptor
+                        ancestor_td = ancestor_bcd.type_descriptor
+                        for next_parent_bca_offset in range(parent_bca_index, len(class_bcds)):
+                            current = class_bcds[next_parent_bca_offset]
+                            current_chd = current.class_hierarchy_descriptor
+                            current_td = current.type_descriptor
+                            if ancestor_chd is not None and current_chd is not None:
+                                if ancestor_chd is not current_chd:
+                                    continue
+                            elif ancestor_td is not current_td:
+                                continue
+
+                            break
+
+                        parent_bca_index = next_parent_bca_offset
+                        resolved_indexes[parent_bca_index] = bcd_to_classes[ancestor_bcd]
+                        parent_bca_index += 1
+
+                    base_classes.append(VisualCxxBaseClass(parent_class, parent_bcd))
+
+                if any(index is None for index in resolved_indexes):
+                    print(class_bcds)
+                    print(resolved_indexes)
+                    raise ValueError()
+
+                changed = True
+                cls.base_classes = base_classes
+                resolved.add(cls)
+
+            if not changed:
+                break
+            changed = False
+
+        return resolved

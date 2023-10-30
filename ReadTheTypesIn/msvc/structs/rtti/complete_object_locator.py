@@ -1,16 +1,18 @@
 from typing import Optional, Generator, Self
+from enum import IntEnum
 import traceback
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, RTTIOffsetType, NamedCheckedTypeRef
-from ...utils import get_data_sections, uses_relative_rtti, encode_rtti_offset, resolve_rtti_offset
+from ....types import CheckedTypeDataVar, CheckedTypedef, Enum, RTTIOffsetType, NamedCheckedTypeRef
+from ...utils import get_data_sections
 from .type_descriptor import TypeDescriptor
 from .class_hierarchy_descriptor import ClassHierarchyDescriptor
 
-COL_SIG_REV0 = 0x00000000
-COL_SIG_REV1 = 0x00000001
+class COLSignature(IntEnum):
+    COL_SIG_REV0 = 0x00000000
+    COL_SIG_REV1 = 0x00000001
 
 COMPLETE_OBJECT_LOCATOR_MEMBERS = [
-    ('unsigned long', 'signature'),
+    (Enum[COLSignature, 'unsigned long'], 'signature'),
     ('unsigned long', 'offset'),
     ('unsigned long', 'cdOffset'),
     (RTTIOffsetType[TypeDescriptor], 'pTypeDescriptor'),
@@ -65,59 +67,33 @@ class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        if self.source['pSelf'].value != encode_rtti_offset(view, self.address):
+        if self.source['pSelf'].value != RTTIOffsetType.encode_offset(view, self.address):
             raise ValueError('Invalid pSelf')
 
     def mark_down_members(self):
-        for name in self.relative_members:
+        for name, mtype in self.member_map.items():
             if name == 'pSelf':
                 continue
 
-            self[name].mark_down()
+            if RTTIOffsetType.get_target(mtype) is not None:
+                self[name].mark_down()
 
-class CompleteObjectLocator:
+class CompleteObjectLocator(CheckedTypedef):
     name = '_RTTICompleteObjectLocator'
 
     @classmethod
-    def create(cls, view: bn.BinaryView, *args, **kwargs):
-        return cls.get_actual_type(view).create(view, *args, **kwargs)
-
-    @classmethod
     def get_actual_type(cls, view: bn.BinaryView) -> type[_CompleteObjectLocatorBase]:
-        return _CompleteObjectLocator2 if uses_relative_rtti(view) else _CompleteObjectLocator
+        if RTTIOffsetType.is_relative(view):
+            return _CompleteObjectLocator2
+
+        return _CompleteObjectLocator
 
     @classmethod
     def get_signature_rev(cls, view: bn.BinaryView) -> int:
-        return COL_SIG_REV1 if uses_relative_rtti(view) else COL_SIG_REV0
+        if RTTIOffsetType.is_relative(view):
+            return COLSignature.COL_SIG_REV1
 
-    @classmethod
-    def define_user_type(cls, view: bn.BinaryView) -> bn.Type:
-        session_data_key = f'ReadTheTypesIn.{cls.name}.defined'
-        if view.session_data.get(session_data_key):
-            return
-
-        struct_ref = cls.get_actual_type(view).get_struct_ref(view)
-        if (old_typedef := view.types.get(cls.name)) is not None:
-            if isinstance(old_typedef, bn.types.NamedReferenceType):
-                target = old_typedef.target(view)
-                if target == struct_ref:
-                    return
-
-        view.define_user_type(cls.name, struct_ref)
-        view.session_data[session_data_key] = True
-
-    @classmethod
-    def get_user_struct(cls, view: bn.BinaryView) -> bn.Type:
-        return cls.get_actual_type(view).get_user_struct(view)
-
-    @classmethod
-    def get_typedef_ref(cls, view: bn.BinaryView) -> bn.Type:
-        cls.define_user_type(view)
-        return bn.Type.named_type_from_registered_type(view, cls.name)
-
-    @classmethod
-    def get_alignment(cls, view: bn.BinaryView) -> int:
-        return cls.get_actual_type(view).get_alignment(view)
+        return COLSignature.COL_SIG_REV0
 
     @classmethod
     def search_with_type_descriptors(
@@ -126,7 +102,7 @@ class CompleteObjectLocator:
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         type_desc_offsets = set(
-            encode_rtti_offset(view, desc.address)
+            RTTIOffsetType.encode_offset(view, desc.address)
             for desc in type_descriptors
             if not desc.decorated_name.startswith(".?AV<lambda")
         )
@@ -152,14 +128,14 @@ class CompleteObjectLocator:
             if chd_offset in invalid_pchds or not any(
                 section in data_sections
                 for section in view.get_sections_at(
-                    resolve_rtti_offset(view, chd_offset)
+                    RTTIOffsetType.resolve_offset(view, chd_offset)
                 )
             ):
                 invalid_pchds.add(chd_offset)
                 return False
 
             if any(member.name == 'pSelf' for member in user_struct.members):
-                if accessor['pSelf'].value != encode_rtti_offset(view, accessor.address):
+                if accessor['pSelf'].value != RTTIOffsetType.encode_offset(view, accessor.address):
                     return False
 
             return True

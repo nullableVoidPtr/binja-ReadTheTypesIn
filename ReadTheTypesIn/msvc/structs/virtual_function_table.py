@@ -1,7 +1,9 @@
 from typing import Optional, Generator, Self
 from weakref import WeakKeyDictionary
+import traceback
 import binaryninja as bn
 from ..utils import get_data_sections, get_function
+from ...name import TypeName
 from .rtti.complete_object_locator import CompleteObjectLocator
 
 PATTERN_SHIFT_SIZE = 3
@@ -10,7 +12,6 @@ class VirtualFunctionTable:
     __instances__ = WeakKeyDictionary()
 
     meta: CompleteObjectLocator
-    for_base_class: Optional['VisualCxxClass']
     method_addresses: list[int]
 
     def __init__(self, view: bn.BinaryView, address: int):
@@ -38,13 +39,13 @@ class VirtualFunctionTable:
             offset += self.view.address_size
 
     @property
-    def name(self):
+    def name(self, for_base: Optional[TypeName] = None):
         suffix = ''
         if self.type_name is None:
-            if self.for_base_class is None:
+            if for_base is None:
                 return None
 
-            suffix = f"{{for `{self.for_base_class.type_name}'}}"
+            suffix = f"{{for `{self.for_base_class.name}'}}"
 
         return f"{self.type_name.name}::`vftable'{suffix}"
 
@@ -176,7 +177,7 @@ class VirtualFunctionTable:
                     'VirtualFunctionTable::search',
                 )
                 bn.log.log_debug(
-                    f'Defined catchable type @ 0x{address:x}',
+                    traceback.format_exc(),
                     'VirtualFunctionTable::search',
                 )
 

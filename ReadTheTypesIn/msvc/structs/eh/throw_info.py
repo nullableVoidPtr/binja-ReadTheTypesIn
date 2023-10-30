@@ -2,7 +2,7 @@ from typing import Optional, Generator, Self
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, RTTIOffsetType
-from ...utils import get_data_sections, encode_rtti_offset, resolve_rtti_offset, get_function
+from ...utils import get_data_sections, get_function
 from .catchable_type import CatchableTypeArray
 
 PATTERN_SHIFT_SIZE = 2
@@ -39,7 +39,7 @@ class ThrowInfo(CheckedTypeDataVar,
         if key == 'pCatchableTypeArray':
             return CatchableTypeArray.create(
                 self.view,
-                resolve_rtti_offset(
+                RTTIOffsetType.resolve_offset(
                     self.view,
                     self.source[key].value
                 ),
@@ -65,7 +65,7 @@ class ThrowInfo(CheckedTypeDataVar,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         cta_offsets = set(
-            encode_rtti_offset(
+            RTTIOffsetType.encode_offset(
                 view,
                 cta.address
             )
@@ -90,7 +90,7 @@ class ThrowInfo(CheckedTypeDataVar,
 
             if get_function(
                 view,
-                resolve_rtti_offset(
+                RTTIOffsetType.resolve_offset(
                     view,
                     accessor['pmfnUnwind'].value,
                 )

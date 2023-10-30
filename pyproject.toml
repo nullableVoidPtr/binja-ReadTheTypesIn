@@ -1,5 +1,5 @@
 [tool.pylint.main]
-extension-pkg-allow-list = ["demurr"]
+extension-pkg-allow-list = ["demurr", "PySide6", "binaryninjaui"]
 
 fail-under = 10
 
