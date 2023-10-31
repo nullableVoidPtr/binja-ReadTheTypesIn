@@ -112,7 +112,8 @@ class CheckedTypeDataVar:
                         self.view,
                         member_source,
                     )
-                elif isinstance(member_source.type, bn.ArrayType):
+
+                if isinstance(member_source.type, bn.ArrayType):
                     # TODO more checks
                     return [
                         target_type.create(
@@ -127,7 +128,8 @@ class CheckedTypeDataVar:
                     self.view,
                     member_source,
                 )
-            elif isinstance(member_source, list):
+
+            if isinstance(member_source, list):
                 return [
                     target_type.create(
                         self.view,

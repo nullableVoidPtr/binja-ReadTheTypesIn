@@ -38,6 +38,7 @@ class RelativeOffsetRenderer(bn.DataRenderer):
 
         struct = context[-2]
         if isinstance(struct.type, bn.NamedTypeReferenceType):
+            # TODO CheckedTypedef
             if (container_type := next(
                 (
                     scls

@@ -25,7 +25,7 @@ def as_task(func: Callable[[BackgroundTask, BinaryView], None]):
 msvc.register_renderers()
 
 PluginCommand.register(
-    f"{PLUGIN_NAME}\\Search COLs",
+    f"{PLUGIN_NAME}\\Search all",
     "Search",
     as_task(msvc.search)
 )

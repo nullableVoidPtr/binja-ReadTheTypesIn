@@ -38,7 +38,6 @@ class VirtualFunctionTable:
             self.method_addresses.append(method_address)
             offset += self.view.address_size
 
-    @property
     def name(self, for_base: Optional[TypeName] = None):
         suffix = ''
         if self.type_name is None:

@@ -34,7 +34,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
         if name == 'name':
             return len(self.decorated_name) + 1
 
-        super().get_array_length(name)
+        return super().get_array_length(name)
 
     @property
     def type_name(self):

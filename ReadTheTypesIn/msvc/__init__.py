@@ -246,7 +246,7 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
                 if task is not None:
                     task.progress = f"Marking down {vft.address} for {cls}"
                 address = vft.address - view.address_size
-                view.define_user_data_var(address, vft.type, vft.name)
+                view.define_user_data_var(address, vft.type, vft.name())
 
     search_structors(view, classes, task)
 

@@ -1,3 +1,4 @@
+from typing import Optional
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, CheckedTypedef, EHOffsetType
 from ..rtti.type_descriptor import TypeDescriptor
@@ -10,11 +11,27 @@ HANDLER_TYPE_MEMBERS = [
 ]
 
 class _HandlerTypeBase():
+    source: bn.TypedDataAccessor
+
     adjectives: int
-    type_descriptor: TypeDescriptor
+    type_descriptor: Optional[TypeDescriptor]
+    disp_catch_obj: int
+    handler: int
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
+        self.adjectives = self['adjectives'].value
+        self.type_descriptor = self['pType']
+        self.disp_catch_obj = self['dispCatchObj'].value
+        self.handler = self['pHandler'].value
+
+    def __getitem__(self, key: str):
+        if key == 'pType':
+            if self.source['pType'].value == 0:
+                return None
+
+        # pylint:disable-next=no-member
+        return super().__getitem__(key)
 
 class _HandlerType(_HandlerTypeBase, CheckedTypeDataVar,
     members=HANDLER_TYPE_MEMBERS,

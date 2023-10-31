@@ -167,7 +167,7 @@ class CatchableTypeArray(CheckedTypeDataVar,
         if name == 'arrayOfCatchableTypes':
             return self.length
 
-        super().get_array_length(name)
+        return super().get_array_length(name)
 
     def __len__(self):
         return self.length
