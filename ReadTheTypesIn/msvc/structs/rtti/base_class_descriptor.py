@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Annotated
 from enum import IntFlag
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, Array, Enum, RTTIOffsetType, NamedCheckedTypeRef
@@ -9,11 +9,9 @@ class PMD(CheckedTypeDataVar, members=[
     ('int', 'pdisp'),
     ('int', 'vdisp'),
 ]):
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.mdisp = self['mdisp'].value
-        self.pdisp = self['pdisp'].value
-        self.vdisp = self['vdisp'].value
+    mdisp: Annotated[int, 'mdisp']
+    pdisp: Annotated[int, 'pdisp']
+    vdisp: Annotated[int, 'vdisp']
 
 class BCDAttributes(IntFlag):
     BCD_NOTVISIBLE          = 0x00000001
@@ -38,22 +36,21 @@ class BaseClassDescriptor(CheckedTypeDataVar,
     name = '_RTTIBaseClassDescriptor'
     alt_name = '_s_RTTIBaseClassDescriptor'
 
-    type_descriptor: TypeDescriptor
-    num_contained_bases: int
-    where: PMD
-    attributes: BCDAttributes
-    class_hierarchy_descriptor: Optional['ClassHierarchyDescriptor']
+    type_descriptor: Annotated[TypeDescriptor, 'pTypeDescriptor']
+    num_contained_bases: Annotated[int, 'numContainedBases']
+    where: Annotated[PMD, 'where']
+    attributes: Annotated[BCDAttributes, 'attributes']
+    class_hierarchy_descriptor: Annotated[
+        Optional['ClassHierarchyDescriptor'],
+        'pClassDescriptor'
+    ]
 
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.type_descriptor = self['pTypeDescriptor']
-        self.num_contained_bases = self['numContainedBases'].value
-        self.where = self['where']
-        self.attributes = self['attributes']
-        if BCDAttributes.BCD_HASPCHD in self.attributes:
-            self.class_hierarchy_descriptor = self['pClassDescriptor']
-        else:
-            self.class_hierarchy_descriptor = None
+    def __getitem__(self, key: str):
+        if key == 'pClassDescriptor':
+            if BCDAttributes.BCD_HASPCHD not in self['attributes']:
+                return None
+
+        return super().__getitem__(key)
 
     @property
     def type_name(self):
@@ -96,7 +93,7 @@ class BaseClassArray(CheckedTypeDataVar,
         if name == 'arrayOfBaseClassDescriptors':
             return self.length
 
-        super().get_array_length(name)
+        return super().get_array_length(name)
 
     def __len__(self):
         return self.length

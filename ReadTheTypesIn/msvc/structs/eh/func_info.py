@@ -1,4 +1,4 @@
-from typing import Optional, Generator, Self
+from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, CheckedTypedef, EHOffsetType
@@ -7,17 +7,13 @@ from .handler_type import HandlerType
 
 class UnwindMapEntry(CheckedTypeDataVar, members=[
     ('int', 'toState'),
-    (EHOffsetType['void (__cdecl *)(void)'], 'action'),
+    (EHOffsetType['void __cdecl (void)'], 'action'),
 ]):
     name = "UnwindMapEntry"
     alt_name = "_s_UnwindMapEntry"
 
-    to_state: int
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.to_state = self['toState'].value
-        self.action = self['action']
+    to_state: Annotated[int, 'toState']
+    action: Annotated[bn.Function, 'action']
 
 class TryBlockMapEntry(CheckedTypeDataVar, members=[
     ('int', 'tryLow'),
@@ -29,36 +25,35 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
     name = "TryBlockMapEntry"
     alt_name = "_s_TryBlockMapEntry"
 
-    try_low: int
-    try_high: int
-    catch_high: int
-    handlers: list[HandlerType]
+    try_low: Annotated[int, 'tryLow']
+    try_high: Annotated[int, 'tryHigh']
+    catch_high: Annotated[int, 'catchHigh']
+    handlers: Annotated[list[HandlerType], 'pHandlerArray']
 
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
+    def __getitem__(self, key: str):
+        if key == 'pHandlerArray':
+            handler_type_width = HandlerType.get_user_struct(self.view).width
+            handler_array_address = self.source['pHandlerArray'].value
+            return [
+                HandlerType.create(self.view, handler_array_address + (i * handler_type_width))
+                for i in range(self['nCatches'])
+            ]
 
-        self.try_low = self['tryLow'].value
-        self.try_high = self['tryHigh'].value
-        self.catch_high = self['catchHigh'].value
-
-        handler_type_width = HandlerType.get_user_struct(self.view).width
-        handler_array_address = self['pHandlerArray'].address
-        self.handlers = [
-            HandlerType.create(self.view, handler_array_address + (i * handler_type_width))
-            for i in range(self['nCatches'].value)
-        ]
+        return super().__getitem__(key)
 
     def mark_down_members(self):
-        if len(self.handlers) > 0:
-            self.view.define_user_data_var(
-                self['pHandlerArray'].address,
-                bn.Type.array(
-                    HandlerType.get_typedef_ref(self.view),
-                    len(self.handlers),
-                ),
-            )
-            for entry in self.handlers:
-                entry.mark_down_members()
+        if len(self.handlers) == 0:
+            return
+
+        self.view.define_user_data_var(
+            self.source['pHandlerArray'].value,
+            bn.Type.array(
+                HandlerType.get_typedef_ref(self.view),
+                len(self.handlers),
+            ),
+        )
+        for entry in self.handlers:
+            entry.mark_down_members()
 
 class IpToStateMapEntry(CheckedTypeDataVar, members=[
     ('unsigned int', 'Ip'),
@@ -67,13 +62,8 @@ class IpToStateMapEntry(CheckedTypeDataVar, members=[
     name = "IpToStateMapEntry"
     alt_name = "_s_IpToStateMapEntry"
 
-    ip: int
-    state: int
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.ip = self['Ip'].value
-        self.state = self['State'].value
+    ip: Annotated[int, 'Ip']
+    state: Annotated[int, 'State']
 
 class ESTypeList(CheckedTypeDataVar, members=[
     ('int', 'nCount'),
@@ -84,27 +74,30 @@ class ESTypeList(CheckedTypeDataVar, members=[
 
     types: list[HandlerType]
 
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
+    def __getitem__(self, key: str):
+        if key == 'pTypeArray':
+            handler_type_width = HandlerType.get_user_struct(self.view).width
+            type_array_address = self.source['pTypeArray'].value
+            self.types = [
+                HandlerType.create(self.view, type_array_address + (i * handler_type_width))
+                for i in range(self['nCount'])
+            ]
 
-        handler_type_width = HandlerType.get_user_struct(self.view).width
-        type_array_address = self['pTypeArray'].address
-        self.types = [
-            HandlerType.create(self.view, type_array_address + (i * handler_type_width))
-            for i in range(self['nCount'].value)
-        ]
+        return super().__getitem__(key)
 
     def mark_down_members(self):
-        if len(self.types) > 0:
-            self.view.define_user_data_var(
-                self['pTypeArray'].address,
-                bn.Type.array(
-                    HandlerType.get_typedef_ref(self.view),
-                    len(self.types),
-                ),
-            )
-            for entry in self.types:
-                entry.mark_down_members()
+        if len(self.types) == 0:
+            return
+
+        self.view.define_user_data_var(
+            self.source['pTypeArray'].value,
+            bn.Type.array(
+                HandlerType.get_typedef_ref(self.view),
+                len(self.types),
+            ),
+        )
+        for entry in self.types:
+            entry.mark_down_members()
 
 FUNC_INFO_MEMBERS = [
     ('unsigned int', 'magicNumberAndBBTFlag'),
@@ -125,9 +118,10 @@ FUNC_INFO_MAGIC_NUMBERS = [
 
 class _FuncInfoBase():
     view: bn.BinaryView
+    source: bn.TypedDataAccessor
 
     bbt_flag: int
-    max_state: int
+    max_state: Annotated[int, 'maxState']
     unwind_map: list[UnwindMapEntry]
     try_blocks: list[TryBlockMapEntry]
     ip_map_entries: list[IpToStateMapEntry]
@@ -135,14 +129,17 @@ class _FuncInfoBase():
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        self.bbt_flag = self['magicNumberAndBBTFlag'].value & 7
-        self.max_state = self['maxState'].value
+        self.bbt_flag = self['magicNumberAndBBTFlag'] & 7
 
-        if self['pUnwindMap'].to_state > self.max_state:
+        first_unwind_map = UnwindMapEntry.create(
+            self.view,
+            self.source['pUnwindMap'].value,
+        )
+        if first_unwind_map.to_state > self.max_state:
             raise ValueError('Invalid unwind map')
 
         unwind_entry_width = UnwindMapEntry.get_user_struct(self.view).width
-        unwind_map_address = self['pUnwindMap'].address
+        unwind_map_address = self.source['pUnwindMap'].value
         self.unwind_map = [
             UnwindMapEntry.create(
                 self.view,
@@ -151,12 +148,12 @@ class _FuncInfoBase():
             for i in range(self.max_state)
         ]
 
-        try_block_map_length = self['nTryBlocks'].value
+        try_block_map_length = self['nTryBlocks']
         if try_block_map_length == 0:
             self.try_blocks = []
         else:
             try_block_entry_width = TryBlockMapEntry.get_user_struct(self.view).width
-            try_block_map_address = self['pTryBlockMap'].address
+            try_block_map_address = self.source['pTryBlockMap'].value
             self.try_blocks = [
                 TryBlockMapEntry.create(
                     self.view,
@@ -165,12 +162,12 @@ class _FuncInfoBase():
                 for i in range(try_block_map_length)
             ]
 
-        ip_map_length = self['nIPMapEntries'].value
+        ip_map_length = self['nIPMapEntries']
         if ip_map_length == 0:
             self.ip_map_entries = []
         else:
             ip_entry_width = IpToStateMapEntry.get_user_struct(self.view).width
-            ip_map_address = self['pIPtoStateMap'].address
+            ip_map_address = self.source['pIPtoStateMap'].value
             self.ip_map_entries = [
                 IpToStateMapEntry.create(
                     self.view,

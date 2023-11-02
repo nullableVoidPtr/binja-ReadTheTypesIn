@@ -1,27 +1,25 @@
 from typing import Self
+from dataclasses import dataclass
 from functools import cache
 import binaryninja as bn
 from binaryninja.enums import StructureVariant
 import demurr
 
-class TypeName:
-    TAG_TO_VARIANT = {
-        demurr.TagKind.Class: StructureVariant.ClassStructureType,
-        demurr.TagKind.Struct: StructureVariant.StructStructureType,
-        demurr.TagKind.Union: StructureVariant.UnionStructureType,
-    }
-    VARIANT_TO_STR = {
-        StructureVariant.ClassStructureType: "class",
-        StructureVariant.StructStructureType: "struct",
-        StructureVariant.UnionStructureType: "union",
-    }
+TAG_TO_VARIANT = {
+    demurr.TagKind.Class: StructureVariant.ClassStructureType,
+    demurr.TagKind.Struct: StructureVariant.StructStructureType,
+    demurr.TagKind.Union: StructureVariant.UnionStructureType,
+}
+VARIANT_TO_STR = {
+    StructureVariant.ClassStructureType: "class",
+    StructureVariant.StructStructureType: "struct",
+    StructureVariant.UnionStructureType: "union",
+}
 
+@dataclass(frozen=True)
+class TypeName:
     variant: StructureVariant
     name: bn.QualifiedName
-
-    def __init__(self, variant: StructureVariant, name: bn.QualifiedName):
-        self.variant = variant
-        self.name = name
 
     @staticmethod
     @cache
@@ -47,7 +45,7 @@ class TypeName:
         return TypeName.create_component(view, tuple(self.name.name))
 
     def __str__(self):
-        return TypeName.VARIANT_TO_STR[self.variant] + " " + str(self.name)
+        return VARIANT_TO_STR[self.variant] + " " + str(self.name)
 
     @staticmethod
     @cache
@@ -68,7 +66,7 @@ class TypeName:
         assert tag_type.kind == demurr.NodeKind.TagType
 
         return TypeName(
-            TypeName.TAG_TO_VARIANT[tag_type.tag],
+            TAG_TO_VARIANT[tag_type.tag],
             bn.QualifiedName([
                 str(component)
                 for component in tag_type.qualified_name.components

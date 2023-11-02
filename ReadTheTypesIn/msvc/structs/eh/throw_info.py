@@ -1,4 +1,4 @@
-from typing import Optional, Generator, Self
+from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, RTTIOffsetType
@@ -22,18 +22,10 @@ class ThrowInfo(CheckedTypeDataVar,
     name = '_ThrowInfo'
     alt_name = '_s_ThrowInfo'
 
-    attributes: int
-    member_unwind: bn.Function
-    forward_compat: bn.Function
-    catchable_type_array: CatchableTypeArray
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-
-        self.attributes = self['attributes'].value
-        self.member_unwind = self['pmfnUnwind']
-        self.forward_compat = self['pForwardCompat']
-        self.catchable_type_array = self['pCatchableTypeArray']
+    attributes: Annotated[int, 'attributes']
+    member_unwind: Annotated[bn.Function, 'pmfnUnwind']
+    forward_compat: Annotated[bn.Function, 'pForwardCompat']
+    catchable_type_array: Annotated[CatchableTypeArray, 'pCatchableTypeArray']
 
     def __getitem__(self, key: str):
         if key == 'pCatchableTypeArray':

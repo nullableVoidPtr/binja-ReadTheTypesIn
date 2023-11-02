@@ -1,3 +1,4 @@
+from typing import Annotated
 from enum import IntFlag
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, Enum, RTTIOffsetType
@@ -19,16 +20,13 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
     name = '_RTTIClassHierarchyDescriptor'
     alt_name = '_s_RTTIClassHierarchyDescriptor'
 
-    attributes: CHDAttributes
-    base_class_array: BaseClassArray
+    attributes: Annotated[CHDAttributes, 'attributes']
+    base_class_array: Annotated[BaseClassArray, 'pBaseClassArray']
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        if self['signature'].value != 0:
+        if self['signature'] != 0:
             raise ValueError('Invalid signature')
-
-        self.attributes = self['attributes']
-        self.base_class_array = self['pBaseClassArray']
 
     def __getitem__(self, key: str):
         if key == 'pBaseClassArray':
@@ -38,7 +36,7 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
                     self.view,
                     self.source[key].value
                 ),
-                self['numBaseClasses'].value,
+                self['numBaseClasses'],
             )
 
         return super().__getitem__(key)

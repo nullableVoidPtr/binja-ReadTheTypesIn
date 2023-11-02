@@ -1,4 +1,4 @@
-from typing import Optional, ClassVar, Mapping, Self
+from typing import Optional, ClassVar, Mapping, Self, Annotated, get_origin
 from weakref import WeakKeyDictionary
 import binaryninja as bn
 from .resolver import resolve_type_spec
@@ -12,7 +12,9 @@ class CheckedTypeDataVar:
 
     packed: ClassVar[bool] = False
     members: ClassVar[list[tuple[bn.Type, str]]]
-    member_map: ClassVar[dict[tuple[bn.Type, str]]]
+    member_map: ClassVar[dict[str, bn.Type]]
+
+    _attr_map: ClassVar[dict[str, str]]
 
     __instances__: ClassVar[Mapping[bn.BinaryView, Mapping[int, Self]]]
 
@@ -35,6 +37,25 @@ class CheckedTypeDataVar:
             name: mtype
             for mtype, name in cls.members
         }
+
+        cls._attr_map = {}
+        for c in reversed(cls.__mro__):
+            if c is CheckedTypeDataVar:
+                continue
+
+            annotations = getattr(c, '__annotations__', None)
+            if not isinstance(annotations, dict):
+                continue
+
+            for attr, annotation in annotations.items():
+                if get_origin(annotation) is not Annotated:
+                    continue
+
+                member = annotation.__metadata__[0]
+                if not isinstance(member, str):
+                    continue
+
+                cls._attr_map[attr] = member
 
         for i, (mtype, mname) in enumerate(cls.members):
             if not Array.is_flexible(mtype):
@@ -63,6 +84,9 @@ class CheckedTypeDataVar:
 
         self.source = source
 
+        for attr, member in self._attr_map.items():
+            setattr(self, attr, self[member])
+
     def __getitem__(self, key: str):
         from .typedef import CheckedTypedef
 
@@ -70,7 +94,7 @@ class CheckedTypeDataVar:
 
         target_type = self.member_map[key]
 
-        if (enum_type := Enum.get_type(target_type)):
+        if (enum_type := Enum.get_type(target_type)) is not None:
             return enum_type(member_source.value)
 
         if (array_type := Array.get_element_type(target_type)) is not None:
@@ -104,7 +128,8 @@ class CheckedTypeDataVar:
         if isinstance(target_type, bn.FunctionType):
             return get_function(self.view, member_source)
 
-        if isinstance(target_type, type) and issubclass(target_type, (CheckedTypeDataVar, CheckedTypedef)):
+        if isinstance(target_type, type) and \
+            issubclass(target_type, (CheckedTypeDataVar, CheckedTypedef)):
             if isinstance(member_source, bn.TypedDataAccessor):
                 if member_source.type == target_type.get_typedef_ref(self.view):
                     member_source = member_source.address
@@ -153,6 +178,16 @@ class CheckedTypeDataVar:
                 )
                 for address in member_source
             ]
+
+        if isinstance(member_source.type, bn.IntegerType):
+            return member_source.value
+
+        if isinstance(member_source.type, bn.ArrayType):
+            if all(
+                isinstance(child, bn.IntegerType)
+                for child in member_source.type.children
+            ):
+                return member_source.value
 
         return member_source
 
@@ -293,7 +328,7 @@ class CheckedTypeDataVar:
     def define_structure(cls, view: bn.BinaryView) -> bn.StructureType:
         session_data_key = f'ReadTheTypesIn.{cls.alt_name}.defined'
         old_type = view.types.get(cls.alt_name)
-        if view.session_data.get(session_data_key):
+        if view.session_data.get(session_data_key) and old_type is not None:
             return old_type
 
         builder = bn.StructureBuilder.create()
@@ -328,6 +363,7 @@ class CheckedTypeDataVar:
                         print(f"{member.type=} {expected_type=}")
                         break
                 else:
+                    view.session_data[session_data_key] = True
                     return old_type
 
         view.define_user_type(cls.alt_name, structure)
@@ -338,14 +374,15 @@ class CheckedTypeDataVar:
     @classmethod
     def define_typedef(cls, view: bn.BinaryView):
         session_data_key = f'ReadTheTypesIn.{cls.name}.defined'
-        if view.session_data.get(session_data_key):
-            return
-
         struct_ref = cls.get_struct_ref(view)
         if (old_typedef := view.types.get(cls.name)) is not None:
+            if view.session_data.get(session_data_key):
+                return
+
             if isinstance(old_typedef, bn.types.NamedReferenceType):
                 target = old_typedef.target(view)
                 if target == struct_ref:
+                    view.session_data[session_data_key] = True
                     return
 
         view.define_user_type(cls.name, struct_ref)

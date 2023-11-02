@@ -1,4 +1,4 @@
-from typing import Optional, Generator, Self
+from typing import Optional, Generator, Self, Annotated
 import traceback
 from collections import Counter
 import binaryninja as bn
@@ -20,15 +20,13 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
 ]):
     packed = True
 
-    decorated_name: str
+    decorated_name: Annotated[str, 'name']
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
 
         if self['spare'].value != 0:
             raise ValueError("Invalid TypeDescriptor (non-null spare)")
-
-        self.decorated_name = self['name'].value
 
     def get_array_length(self, name: str):
         if name == 'name':
@@ -59,7 +57,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
             )) is None:
                 raise ValueError("Invalid TypeDescriptor (incorrect name)")
 
-            return name
+            return name.value
 
         return super().__getitem__(key)
 

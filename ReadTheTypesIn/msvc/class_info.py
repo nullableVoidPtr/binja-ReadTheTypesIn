@@ -1,17 +1,14 @@
 from typing import Optional
+from dataclasses import dataclass
 import binaryninja as bn
-from .structs.rtti.base_class_descriptor import BaseClassDescriptor, PMD
+from .structs.rtti.base_class_descriptor import BaseClassDescriptor
 from .structs.rtti.class_hierarchy_descriptor import ClassHierarchyDescriptor
 from .structs.virtual_function_table import VirtualFunctionTable
 
+@dataclass(frozen=True)
 class VisualCxxBaseClass:
-    where: PMD
     cls: 'VisualCxxClass'
     base_class_descriptor: BaseClassDescriptor
-
-    def __init__(self, cls, base_class_descriptor):
-        self.cls = cls
-        self.base_class_descriptor = base_class_descriptor
 
 class VisualCxxClass:
     class_hierarchy_descriptor: ClassHierarchyDescriptor
@@ -126,7 +123,6 @@ class VisualCxxClass:
                     continue
 
                 if task is not None:
-                    print(f'Structuring {cls.type_name}')
                     task.progress = f'Structuring {cls.type_name}'
 
                 base_classes = []

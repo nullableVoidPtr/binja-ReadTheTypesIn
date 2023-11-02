@@ -1,4 +1,4 @@
-from typing import Optional, Generator, Self
+from typing import Optional, Generator, Self, Annotated
 from enum import IntFlag
 import traceback
 import binaryninja as bn
@@ -30,19 +30,11 @@ class CatchableType(CheckedTypeDataVar,
     name = '_CatchableType'
     alt_name = '_s_CatchableType'
 
-    properties: CTProperties
-    type_descriptor: TypeDescriptor
-    this_displacement: PMD
-    size_or_offset: int
-    copy_function: bn.Function
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.properties = self['properties']
-        self.type_descriptor = self['pType']
-        self.this_displacement = self['thisDisplacement']
-        self.size_or_offset = self['sizeOrOffset'].value
-        self.copy_function = self['copyFunction']
+    properties: Annotated[CTProperties, 'properties']
+    type_descriptor: Annotated[TypeDescriptor, 'pType']
+    this_displacement: Annotated[PMD, 'thisDisplacement']
+    size_or_offset: Annotated[int, 'sizeOrOffset']
+    copy_function: Annotated[bn.Function, 'copyFunction']
 
     @property
     def type_name(self):
@@ -155,7 +147,7 @@ class CatchableTypeArray(CheckedTypeDataVar,
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        self.length = self['nCatchableTypes'].value
+        self.length = self['nCatchableTypes']
         self.source = self.view.typed_data_accessor(
             self.address,
             self.type

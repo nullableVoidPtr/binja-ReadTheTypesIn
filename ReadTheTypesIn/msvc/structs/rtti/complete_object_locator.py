@@ -1,4 +1,4 @@
-from typing import Optional, Generator, Self
+from typing import Optional, Generator, Self, Annotated
 from enum import IntEnum
 import traceback
 import binaryninja as bn
@@ -20,17 +20,13 @@ COMPLETE_OBJECT_LOCATOR_MEMBERS = [
 ]
 
 class _CompleteObjectLocatorBase():
-    offset: int
-    complete_displacement_offset: int
-    type_descriptor: TypeDescriptor
-    class_hierarchy_descriptor: ClassHierarchyDescriptor
+    offset: Annotated[int, 'offset']
+    complete_displacement_offset: Annotated[int, 'cdOffset']
+    type_descriptor: Annotated[TypeDescriptor, 'pTypeDescriptor']
+    class_hierarchy_descriptor: Annotated[ClassHierarchyDescriptor, 'pClassDescriptor']
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        self.offset = self['offset'].value
-        self.complete_displacement_offset = self['cdOffset'].value
-        self.type_descriptor = self['pTypeDescriptor']
-        self.class_hierarchy_descriptor = self['pClassDescriptor']
 
         bca = self.class_hierarchy_descriptor.base_class_array
         if self.type_descriptor is not bca[0].type_descriptor:
