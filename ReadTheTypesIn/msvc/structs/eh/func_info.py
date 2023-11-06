@@ -33,7 +33,10 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
     def __getitem__(self, key: str):
         if key == 'pHandlerArray':
             handler_type_width = HandlerType.get_user_struct(self.view).width
-            handler_array_address = self.source['pHandlerArray'].value
+            handler_array_address = EHOffsetType.resolve_offset(
+                self.view,
+                self.source['pHandlerArray'].value,
+            )
             return [
                 HandlerType.create(self.view, handler_array_address + (i * handler_type_width))
                 for i in range(self['nCatches'])
@@ -46,7 +49,10 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
             return
 
         self.view.define_user_data_var(
-            self.source['pHandlerArray'].value,
+            EHOffsetType.resolve_offset(
+                self.view,
+                self.source['pHandlerArray'].value,
+            ),
             bn.Type.array(
                 HandlerType.get_typedef_ref(self.view),
                 len(self.handlers),
@@ -77,7 +83,10 @@ class ESTypeList(CheckedTypeDataVar, members=[
     def __getitem__(self, key: str):
         if key == 'pTypeArray':
             handler_type_width = HandlerType.get_user_struct(self.view).width
-            type_array_address = self.source['pTypeArray'].value
+            type_array_address = EHOffsetType.resolve_offset(
+                self.view,
+                self.source['pTypeArray'].value,
+            )
             self.types = [
                 HandlerType.create(self.view, type_array_address + (i * handler_type_width))
                 for i in range(self['nCount'])
@@ -90,7 +99,10 @@ class ESTypeList(CheckedTypeDataVar, members=[
             return
 
         self.view.define_user_data_var(
-            self.source['pTypeArray'].value,
+            EHOffsetType.resolve_offset(
+                self.view,
+                self.source['pTypeArray'].value,
+            ),
             bn.Type.array(
                 HandlerType.get_typedef_ref(self.view),
                 len(self.types),
@@ -139,7 +151,10 @@ class _FuncInfoBase():
             raise ValueError('Invalid unwind map')
 
         unwind_entry_width = UnwindMapEntry.get_user_struct(self.view).width
-        unwind_map_address = self.source['pUnwindMap'].value
+        unwind_map_address = EHOffsetType.resolve_offset(
+            self.view,
+            self.source['pUnwindMap'].value,
+        )
         self.unwind_map = [
             UnwindMapEntry.create(
                 self.view,
@@ -153,7 +168,10 @@ class _FuncInfoBase():
             self.try_blocks = []
         else:
             try_block_entry_width = TryBlockMapEntry.get_user_struct(self.view).width
-            try_block_map_address = self.source['pTryBlockMap'].value
+            try_block_map_address = EHOffsetType.resolve_offset(
+                self.view,
+                self.source['pTryBlockMap'].value,
+            )
             self.try_blocks = [
                 TryBlockMapEntry.create(
                     self.view,
@@ -167,7 +185,10 @@ class _FuncInfoBase():
             self.ip_map_entries = []
         else:
             ip_entry_width = IpToStateMapEntry.get_user_struct(self.view).width
-            ip_map_address = self.source['pIPtoStateMap'].value
+            ip_map_address = EHOffsetType.resolve_offset(
+                view,
+                self.source['pIPtoStateMap'].value,
+            )
             self.ip_map_entries = [
                 IpToStateMapEntry.create(
                     self.view,
@@ -179,7 +200,10 @@ class _FuncInfoBase():
     def mark_down_members(self):
         if self.max_state > 0:
             self.view.define_user_data_var(
-                self['pUnwindMap'].address,
+                EHOffsetType.resolve_offset(
+                    self.view,
+                    self.source['pUnwindMap'].value,
+                ),
                 bn.Type.array(
                     UnwindMapEntry.get_typedef_ref(self.view),
                     self.max_state,
@@ -190,7 +214,10 @@ class _FuncInfoBase():
 
         if len(self.try_blocks) > 0:
             self.view.define_user_data_var(
-                self['pTryBlockMap'].address,
+                EHOffsetType.resolve_offset(
+                    self.view,
+                    self.source['pTryBlockMap'].value,
+                ),
                 bn.Type.array(
                     TryBlockMapEntry.get_typedef_ref(self.view),
                     len(self.try_blocks),
@@ -201,7 +228,10 @@ class _FuncInfoBase():
 
         if len(self.ip_map_entries) > 0:
             self.view.define_user_data_var(
-                self['pIPtoStateMap'].address,
+                EHOffsetType.resolve_offset(
+                    self.view,
+                    self.source['pIPtoStateMap'].value,
+                ),
                 bn.Type.array(
                     IpToStateMapEntry.get_typedef_ref(self.view),
                     len(self.ip_map_entries),

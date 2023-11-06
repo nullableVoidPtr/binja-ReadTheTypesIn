@@ -1,5 +1,6 @@
 from typing import Optional
 from collections import defaultdict
+from dataclasses import dataclass
 import binaryninja as bn
 from ..types import RelativeOffsetRenderer, EnumRenderer, RelativeOffsetListener
 from .structs.rtti.type_descriptor import TypeDescriptor
@@ -18,9 +19,7 @@ def register_renderers():
     EnumRenderer().register_type_specific()
 
 # TODO: refactor this to allow start from any phase (i.e. from saved file, or manually defined)
-
 def search_rtti(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
-    view.register_notification(RelativeOffsetListener())
     type_descs = list(TypeDescriptor.search(view, task=task))
     complete_object_locators = list(
         CompleteObjectLocator.search_with_type_descriptors(
@@ -227,11 +226,19 @@ def search_structors(
 
         constructors[function] = True
 
-    for c in constructors:
-        print(c)
+    for func in constructors:
+        # TODO attribute vftable
+        func.add_tag("Potential constructors (RTTI)", "unk")
+
+    return constructors
 
 def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
+    view.register_notification(RelativeOffsetListener())
+
     with view.undoable_transaction():
+        view.create_tag_type("Potential constructors (RTTI)", "🏗️")
+        view.create_tag_type("Potential destructors (RTTI)", "💥")
+
         classes = search_rtti(view, task)
         print(f"{len(classes)} classes identified")
         throw_infos, func_infos = search_eh(view, task)
@@ -248,7 +255,8 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
                 address = vft.address - view.address_size
                 view.define_user_data_var(address, vft.type, vft.name())
 
-    search_structors(view, classes, task)
+        constructors = search_structors(view, classes, task)
+        print(f"{len(constructors)} constructors identified")
 
 __all__ = [
     'TypeDescriptor',

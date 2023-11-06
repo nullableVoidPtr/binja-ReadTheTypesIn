@@ -61,7 +61,8 @@ class BaseClassDescriptor(CheckedTypeDataVar,
         if self.type_name is None:
             return None
 
-        location = f'({self.where.mdisp},{self.where.pdisp},{self.where.vdisp},{int(self.attributes)})'
+        where = f'{self.where.mdisp},{self.where.pdisp},{self.where.vdisp}'
+        location = f'({where},{int(self.attributes)})'
         return f"{self.type_name.name}::`RTTI Base Class Descriptor at {location}'"
 
     @property

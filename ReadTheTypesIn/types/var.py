@@ -354,7 +354,7 @@ class CheckedTypeDataVar:
         if old_type is not None:
             members = old_type.members
             if len(members) == len(structure.members):
-                for member, (expected_type, expected_name) in zip(members, structure.members):
+                for (expected_type, expected_name), member in zip(members, structure.members):
                     if member.name != expected_name:
                         break
 

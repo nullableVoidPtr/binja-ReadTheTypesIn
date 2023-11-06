@@ -20,9 +20,7 @@
     "Windows"
   ],
   "dependencies": {
-    "pip": [
-      "demurr"
-    ],
+    "pip": [],
     "apt": [
     ],
     "installers": [

@@ -37,8 +37,11 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
     @property
     def type_name(self):
         try:
-            return TypeName.parse_from_msvc_type_descriptor_name(self.decorated_name)
-        except Exception:
+            return TypeName.parse_from_msvc_type_descriptor_name(
+                self.view.platform,
+                self.decorated_name,
+            )
+        except ValueError:
             return None
 
     @property
