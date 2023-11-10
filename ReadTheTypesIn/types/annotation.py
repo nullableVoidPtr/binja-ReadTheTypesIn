@@ -82,6 +82,10 @@ class OffsetType():
         return args[0]
 
     @classmethod
+    def get_typedef_ref(view: bn.BinaryView):
+        pass
+
+    @classmethod
     def get_relative_type(cls, type_spec) -> Optional['MemberTypeSpec']:
         origin = cls.get_origin(type_spec)
         if origin is None:
@@ -97,7 +101,7 @@ class OffsetType():
 
     @staticmethod
     def is_relative(view: bn.BinaryView):
-        raise NotImplementedError()
+        return True
 
     @classmethod
     def encode_offset(cls, view: bn.BinaryView, address: int) -> int:

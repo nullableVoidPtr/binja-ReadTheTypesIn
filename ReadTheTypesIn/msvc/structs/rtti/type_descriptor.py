@@ -3,8 +3,8 @@ import traceback
 from collections import Counter
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, Array
-from ....name import TypeName
-from ...utils import get_data_sections
+from ....name import parse_from_msvc_type_descriptor_name
+from ....utils import get_data_sections
 
 TYPE_DESCRIPTOR_NAME_PREFIX = '.?A'
 CLASS_TYPE_ID_PREFIX = TYPE_DESCRIPTOR_NAME_PREFIX + 'V'
@@ -37,7 +37,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
     @property
     def type_name(self):
         try:
-            return TypeName.parse_from_msvc_type_descriptor_name(
+            return parse_from_msvc_type_descriptor_name(
                 self.view.platform,
                 self.decorated_name,
             )
@@ -66,6 +66,9 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
 
     @property
     def symbol_name(self):
+        if self.type_name is None:
+            return None
+
         return f"{self.type_name.name} `RTTI Type Descriptor'"
 
     @classmethod

@@ -2,7 +2,7 @@ from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, RTTIOffsetType
-from ...utils import get_data_sections, get_function
+from ....utils import get_data_sections, get_function
 from .catchable_type import CatchableTypeArray
 
 PATTERN_SHIFT_SIZE = 2

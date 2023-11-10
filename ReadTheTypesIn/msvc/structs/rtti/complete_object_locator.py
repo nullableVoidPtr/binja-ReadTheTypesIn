@@ -3,7 +3,7 @@ from enum import IntEnum
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, CheckedTypedef, Enum, RTTIOffsetType, NamedCheckedTypeRef
-from ...utils import get_data_sections
+from ....utils import get_data_sections
 from .type_descriptor import TypeDescriptor
 from .class_hierarchy_descriptor import ClassHierarchyDescriptor
 

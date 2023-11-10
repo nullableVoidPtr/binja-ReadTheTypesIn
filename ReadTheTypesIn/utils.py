@@ -1,3 +1,4 @@
+from functools import cache
 from typing import Generator
 import binaryninja as bn
 
@@ -25,3 +26,24 @@ def get_function(view: bn.BinaryView, address: int):
         return None
 
     return view.create_user_function(address)
+
+@cache
+def get_component(view: bn.BinaryView, name: tuple[str]):
+    if len(name) == 1:
+        parent = view.root_component
+        if name[0].startswith("<lambda_"):
+            parent = get_component(view, ("Anonymous Lambdas",))
+    else:
+        parent = get_component(view, name[:-1])
+
+    component = next(
+        (
+            component
+            for component in parent.components
+            if component.display_name == name[-1]
+        ),
+        None,
+    ) or view.create_component("::".join(name), parent)
+    component.name = name[-1]
+
+    return component

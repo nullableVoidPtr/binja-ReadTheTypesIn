@@ -74,12 +74,42 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
                         offset_type.resolve_offset(view, element.value)
                     )
 
+        for name, mtype in var_type.virtual_relative_members.items():
+            print(name)
+            if not any(member.name == name for member in var.type.members):
+                continue
+
+            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+                view.add_user_data_ref(
+                    var[name].address,
+                    offset_type.resolve_offset(view, var[name].value)
+                )
+            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+                for element in var[name]:
+                    view.add_user_data_ref(
+                        element.address,
+                        offset_type.resolve_offset(view, element.value)
+                    )
+
     def data_var_updated(self, view: bn.BinaryView, var: bn.DataVariable) -> None:
         self.received_event = True
         if (var_type := self.find_checked_type(view, var.type)) is None:
             return
 
         for name, mtype in var_type.member_map.items():
+            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+                view.add_user_data_ref(
+                    var[name].address,
+                    offset_type.resolve_offset(view, var[name].value)
+                )
+            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+                for element in var[name]:
+                    view.add_user_data_ref(
+                        element.address,
+                        offset_type.resolve_offset(view, element.value)
+                    )
+
+        for name, mtype in var_type.virtual_relative_members.items():
             if (offset_type := OffsetType.get_origin(mtype)) is not None:
                 view.add_user_data_ref(
                     var[name].address,
@@ -99,13 +129,26 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
 
         for name, mtype in var_type.member_map.items():
             if (offset_type := OffsetType.get_origin(mtype)) is not None:
-                view.add_user_data_ref(
+                view.remove_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
             elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
-                    view.add_user_data_ref(
+                    view.remove_user_data_ref(
+                        element.address,
+                        offset_type.resolve_offset(view, element.value)
+                    )
+
+        for name, mtype in var_type.virtual_relative_members.items():
+            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+                view.remove_user_data_ref(
+                    var[name].address,
+                    offset_type.resolve_offset(view, var[name].value)
+                )
+            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+                for element in var[name]:
+                    view.remove_user_data_ref(
                         element.address,
                         offset_type.resolve_offset(view, element.value)
                     )

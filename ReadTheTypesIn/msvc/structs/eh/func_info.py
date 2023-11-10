@@ -2,7 +2,7 @@ from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, CheckedTypedef, EHOffsetType
-from ...utils import get_data_sections
+from ....utils import get_data_sections
 from .handler_type import HandlerType
 
 class UnwindMapEntry(CheckedTypeDataVar, members=[
@@ -250,7 +250,7 @@ class _FuncInfo(_FuncInfoBase, CheckedTypeDataVar,
     name = '_s_FuncInfo'
     alt_name = '_s__FuncInfo'
 
-class _FuncInfo2(_FuncInfoBase, CheckedTypeDataVar,
+class _FuncInfo3(_FuncInfoBase, CheckedTypeDataVar,
     members=[
         *FUNC_INFO_MEMBERS,
         ('int', 'pUnwindHelp'),
@@ -258,15 +258,15 @@ class _FuncInfo2(_FuncInfoBase, CheckedTypeDataVar,
         ('int', 'EHFlags'),
     ],
 ):
-    name = '_s_FuncInfo2'
-    alt_name = '_s__FuncInfo2'
+    name = '_s_FuncInfo3'
+    alt_name = '_s__FuncInfo3'
 
 class FuncInfo(CheckedTypedef):
     name = '_FuncInfo'
 
     @classmethod
     def get_actual_type(cls, view: bn.BinaryView) -> type[_FuncInfoBase]:
-        return _FuncInfo2 if EHOffsetType.is_relative(view) else _FuncInfo
+        return _FuncInfo3 if EHOffsetType.is_relative(view) else _FuncInfo
 
     @classmethod
     def search(

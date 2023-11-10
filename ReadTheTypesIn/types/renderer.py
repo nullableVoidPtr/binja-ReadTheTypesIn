@@ -1,26 +1,57 @@
 from enum import Flag
 import binaryninja as bn
 from .var import CheckedTypeDataVar
-from .annotation import OffsetType, RTTIOffsetType, EHOffsetType, Array, Enum
+from .annotation import OffsetType, Array, Enum
 
 class RelativeOffsetRenderer(bn.DataRenderer):
     def get_relative_offset_member(self, view, _type, context):
+        struct = context[-1].type
         if (container_type := next(
             (
                 scls
                 for scls in CheckedTypeDataVar.__subclasses__()
                 if bn.DataRenderer.is_type_of_struct_name(
-                    context[-1].type,
+                    struct,
                     scls.alt_name,
                     context[:-1],
                 )
             )
         , None)) is None:
-            return None
+            if not isinstance(struct, bn.StructureType):
+                return None
+
+            if len(struct.base_structures) != 1:
+                return None
+
+            base = struct.base_structures[0].type
+            if (container_type := next(
+                (
+                    scls
+                    for scls in CheckedTypeDataVar.__subclasses__()
+                    # FIXME
+                    if scls.alt_name == base.name
+                ),
+                None,
+            )) is None:
+                return None
 
         member_offset = context[-1].offset
+        try:
+            actual_member = struct.member_at_offset(member_offset)
+            if actual_member is None:
+                return None
+        except ValueError:
+            return None
+
+        if actual_member.name in container_type.virtual_relative_members:
+            return OffsetType.get_origin(container_type.virtual_relative_members.get(actual_member.name))
+
         user_struct = container_type.get_user_struct(view)
-        if (member := user_struct.member_at_offset(member_offset)) is None:
+        try:
+            member = user_struct.member_at_offset(member_offset)
+            if member is None:
+                return None
+        except ValueError:
             return None
 
         if member.type != _type:
@@ -46,7 +77,7 @@ class RelativeOffsetRenderer(bn.DataRenderer):
                     if bn.DataRenderer.is_type_of_struct_name(
                         struct.type,
                         scls.alt_name,
-                        struct[:-2],
+                        context[:-2],
                     )
                 )
             , None)) is None:
@@ -54,7 +85,11 @@ class RelativeOffsetRenderer(bn.DataRenderer):
 
             member_offset = struct.offset
             user_struct = container_type.get_user_struct(view)
-            if (member := user_struct.member_at_offset(member_offset)) is None:
+            try:
+                member = user_struct.member_at_offset(member_offset)
+                if member is None:
+                    return None
+            except ValueError:
                 return None
 
             return OffsetType.get_origin(container_type.member_map.get(member.name))
@@ -84,9 +119,6 @@ class RelativeOffsetRenderer(bn.DataRenderer):
         return None
 
     def perform_is_valid_for_data(self, ctxt, view, _, _type, context):
-        if not RTTIOffsetType.is_relative(view) and not EHOffsetType.is_relative(view):
-            return False
-
         if len(context) == 0:
             return False
 

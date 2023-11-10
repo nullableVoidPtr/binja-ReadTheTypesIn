@@ -1,8 +1,10 @@
 from typing import Optional
+from enum import Enum, auto
 from collections import defaultdict
 from dataclasses import dataclass
 import binaryninja as bn
 from ..types import RelativeOffsetRenderer, EnumRenderer, RelativeOffsetListener
+from ..types.annotation import OffsetType
 from .structs.rtti.type_descriptor import TypeDescriptor
 from .structs.rtti.base_class_descriptor import \
     BaseClassDescriptor, BaseClassArray
@@ -12,11 +14,14 @@ from .structs.virtual_function_table import VirtualFunctionTable
 from .structs.eh.catchable_type import CatchableType, CatchableTypeArray
 from .structs.eh.throw_info import ThrowInfo
 from .structs.eh.func_info import FuncInfo
+from .structs.eh.func_info4 import FuncInfo4, CompressedIntRenderer
+from .structs.eh.image_runtime_function import ImageRuntimeFunction
 from .class_info import VisualCxxBaseClass, VisualCxxClass
 
 def register_renderers():
     RelativeOffsetRenderer().register_type_specific()
     EnumRenderer().register_type_specific()
+    CompressedIntRenderer().register_type_specific()
 
 # TODO: refactor this to allow start from any phase (i.e. from saved file, or manually defined)
 def search_rtti(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
@@ -71,6 +76,109 @@ def search_rtti(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
 
     return list(classes.values())
 
+class MSVCExceptionPersonality(Enum):
+    C_SPECIFIC = auto()
+
+    GS = auto()
+
+    GS_SEH = auto()
+
+    CXX_FRAME = auto()
+
+    GS_EH = auto()
+
+def resolve_personality(handler: bn.Function) -> MSVCExceptionPersonality:
+    if handler.name == '__C_specific_handler':
+        return MSVCExceptionPersonality.C_SPECIFIC
+
+    if handler.name == '__GSHandlerCheck':
+        return MSVCExceptionPersonality.GS
+
+    if handler.name == '__GSHandlerCheck_SEH':
+        return MSVCExceptionPersonality.GS_SEH
+
+    if handler.name in [
+        '__CxxFrameHandler',
+        '__CxxFrameHandler3',
+        '__CxxFrameHandler4',
+    ]:
+        return MSVCExceptionPersonality.CXX_FRAME
+
+    if handler.name == '__GSHandlerCheck_EH':
+        return MSVCExceptionPersonality.GS_EH
+
+    if any(
+        callee.name == '__GSHandlerCheckCommon'
+        for callee in handler.callees
+    ) and any(
+        callee.name.startswith('__CxxFrameHandler')
+        for callee in handler.callees
+    ):
+        if any(
+            callee.name == '__CxxFrameHandler4'
+            for callee in handler.callees
+        ):
+            handler.name = '__GSHandlerCheck_EH4'
+        else:
+            handler.name = '__GSHandlerCheck_EH'
+
+        return MSVCExceptionPersonality.GS_EH
+
+    return None
+
+def parse_eh32(
+    view: bn.BinaryView,
+    func_infos: list,
+    task: Optional[bn.BackgroundTask] = None,
+):
+    pass
+
+def parse_eh64(
+    view: bn.BinaryView,
+    func_infos: list,
+    task: Optional[bn.BackgroundTask] = None,
+):
+    func_info_offsets = set(
+        OffsetType.encode_offset(view, fi.address)
+        for fi in func_infos
+    )
+
+    image_runtime_funcs = list(ImageRuntimeFunction.search(
+        view,
+        task,
+    ))
+
+    exception_handlers = {
+        handler: resolve_personality(handler)
+        for handler in set(
+            irf.unwind_info.exception_handler
+            for irf in image_runtime_funcs
+        )
+        if handler is not None
+    }
+
+    new_func_infos = []
+    for irf in image_runtime_funcs:
+        unwind_info = irf.unwind_info
+        personality = exception_handlers.get(unwind_info.exception_handler)
+        if personality is None:
+            continue
+
+        if personality in [MSVCExceptionPersonality.GS_EH, MSVCExceptionPersonality.CXX_FRAME]:
+            view.define_user_data_var(unwind_info.exception_handler_data_start, 'uint32_t')
+            if personality == MSVCExceptionPersonality.GS_EH:
+                view.define_user_data_var(unwind_info.exception_handler_data_start + 4, 'uint32_t')
+
+            offset = view.read_int(unwind_info.exception_handler_data_start, 4, False)
+            if offset in func_info_offsets:
+                continue
+
+            func_info_address = view.start + offset
+            print(f"FuncInfo {func_info_address:x}")
+            fi = FuncInfo4.create(view, func_info_address)
+            fi.mark_down()
+            new_func_infos.append(fi)
+
 def search_eh(
     view: bn.BinaryView,
     task: Optional[bn.BackgroundTask] = None,
@@ -110,13 +218,18 @@ def search_eh(
 
     func_infos = list(FuncInfo.search(
         view,
-        task
+        task,
     ))
 
     if task is not None:
         task.progress = 'Marking down func infos'
     for func_info in func_infos:
         func_info.mark_down()
+
+    if view.arch.address_size == 8:
+        exception_infos = parse_eh64(view, func_infos, task)
+    elif view.arch.address_size == 4:
+        exception_infos = parse_eh32(view, func_infos, task)
 
     return (throw_infos, func_infos)
 
@@ -251,7 +364,10 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
         for cls in classes:
             for vft in cls.base_vftables.values():
                 if task is not None:
-                    task.progress = f"Marking down {vft.address} for {cls}"
+                    try:
+                        task.progress = f"Marking down {vft.address} for {cls}"
+                    except:
+                        pass
                 address = vft.address - view.address_size
                 view.define_user_data_var(address, vft.type, vft.name())
 
@@ -264,5 +380,10 @@ __all__ = [
     'BaseClassArray',
     'ClassHierarchyDescriptor',
     'CompleteObjectLocator',
+    'VirtualFunctionTable',
+    'CatchableType',
+    'CatchableTypeArray',
+    'ThrowInfo',
+    'FuncInfo',
     'search',
 ]

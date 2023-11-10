@@ -2,8 +2,7 @@ from typing import Optional, Generator, Self
 from weakref import WeakKeyDictionary
 import traceback
 import binaryninja as bn
-from ..utils import get_data_sections, get_function
-from ...name import TypeName
+from ...utils import get_data_sections, get_function
 from .rtti.complete_object_locator import CompleteObjectLocator
 
 PATTERN_SHIFT_SIZE = 3
@@ -38,7 +37,7 @@ class VirtualFunctionTable:
             self.method_addresses.append(method_address)
             offset += self.view.address_size
 
-    def name(self, for_base: Optional[TypeName] = None):
+    def name(self, for_base: Optional[bn.NamedTypeReferenceType] = None):
         suffix = ''
         if self.type_name is None:
             if for_base is None:

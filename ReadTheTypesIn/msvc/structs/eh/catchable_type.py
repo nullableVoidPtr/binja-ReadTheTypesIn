@@ -3,7 +3,7 @@ from enum import IntFlag
 import traceback
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, Array, Enum, RTTIOffsetType
-from ...utils import get_data_sections, get_function
+from ....utils import get_data_sections, get_function
 from ..rtti.type_descriptor import TypeDescriptor
 from ..rtti.base_class_descriptor import PMD
 
@@ -42,6 +42,9 @@ class CatchableType(CheckedTypeDataVar,
 
     @property
     def symbol_name(self):
+        if self.type_name is None:
+            return None
+
         return f"{self.type_name.name} `EH Catchable Type'"
 
     @classmethod

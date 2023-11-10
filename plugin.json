@@ -28,7 +28,7 @@
     "other": [
     ]
   },
-  "version": "0.0.1",
+  "version": "0.0.2",
   "author": "Vector 35 Inc",
-  "minimumbinaryninjaversion": 3233
+  "minimumbinaryninjaversion": 4632
 }

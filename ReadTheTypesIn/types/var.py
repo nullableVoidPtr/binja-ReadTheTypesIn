@@ -3,12 +3,13 @@ from weakref import WeakKeyDictionary
 import binaryninja as bn
 from .resolver import resolve_type_spec
 from .annotation import OffsetType, Array, Enum, NamedCheckedTypeRef
-from ..name import TypeName
-from ..msvc.utils import get_function
+from ..utils import get_function, get_component
 
 class CheckedTypeDataVar:
     name: ClassVar[str]
     alt_name: ClassVar[str]
+
+    virtual_relative_members: ClassVar[dict[str, bn.Type]] = {}
 
     packed: ClassVar[bool] = False
     members: ClassVar[list[tuple[bn.Type, str]]]
@@ -242,7 +243,7 @@ class CheckedTypeDataVar:
         return old_var.symbol.short_name == expected_symbol_name.short_name
 
     @property
-    def type_name(self) -> Optional[TypeName]:
+    def type_name(self) -> Optional[bn.NamedTypeReferenceType]:
         return None
 
     @property
@@ -261,7 +262,7 @@ class CheckedTypeDataVar:
                     self.symbol_name,
                 )
                 if self.type_name is not None:
-                    component = self.type_name.get_component(self.view)
+                    component = get_component(self.view, tuple(self.type_name.name))
                     component.add_data_variable(
                         self.view.get_data_var_at(self.address)
                     )
@@ -354,13 +355,12 @@ class CheckedTypeDataVar:
         if old_type is not None:
             members = old_type.members
             if len(members) == len(structure.members):
-                for (expected_type, expected_name), member in zip(members, structure.members):
-                    if member.name != expected_name:
+                for old_member, new_member in zip(members, structure.members):
+                    if new_member.name != old_member.name:
                         break
 
-                    expected_type = resolve_type_spec(view, expected_type)
-                    if member.type != expected_type:
-                        print(f"{member.type=} {expected_type=}")
+                    if new_member.type != old_member.type:
+                        print(f"{old_member.type=} {new_member.type=}")
                         break
                 else:
                     view.session_data[session_data_key] = True
