@@ -2,7 +2,7 @@ from typing import Optional, ClassVar, Mapping, Self, Annotated, get_origin
 from weakref import WeakKeyDictionary
 import binaryninja as bn
 from .resolver import resolve_type_spec
-from .annotation import OffsetType, Array, Enum, NamedCheckedTypeRef
+from .annotation import DisplacementOffset, Array, Enum, NamedCheckedTypeRef
 from ..utils import get_function, get_component
 
 class CheckedTypeDataVar:
@@ -101,8 +101,8 @@ class CheckedTypeDataVar:
         if (array_type := Array.get_element_type(target_type)) is not None:
             target_type = array_type
 
-        if (offset_type := OffsetType.get_origin(target_type)) is not None:
-            target_type = OffsetType.get_target(target_type)
+        if (offset_type := DisplacementOffset.get_origin(target_type)) is not None:
+            target_type = DisplacementOffset.get_target(target_type)
             if NamedCheckedTypeRef.get_target(target_type) is not None:
                 if (resolved := NamedCheckedTypeRef.resolve(target_type)) is None:
                     raise TypeError(f'Cannot resolve {target_type}')
@@ -274,7 +274,7 @@ class CheckedTypeDataVar:
 
     def mark_down_members(self):
         for name, mtype in self.member_map.items():
-            if OffsetType.get_target(mtype) is not None:
+            if DisplacementOffset.get_target(mtype) is not None:
                 member = self[name]
                 if isinstance(member, CheckedTypeDataVar):
                     if member.defined:
@@ -286,7 +286,7 @@ class CheckedTypeDataVar:
                         raise ValueError(
                             f"Failed to define {self.name}.{name} @ {self[name].address:x}"
                         ) from e
-            elif OffsetType.get_target(Array.get_element_type(mtype)) is not None:
+            elif DisplacementOffset.get_target(Array.get_element_type(mtype)) is not None:
                 array = self[name]
                 for element in array:
                     if isinstance(element, CheckedTypeDataVar):
@@ -360,7 +360,6 @@ class CheckedTypeDataVar:
                         break
 
                     if new_member.type != old_member.type:
-                        print(f"{old_member.type=} {new_member.type=}")
                         break
                 else:
                     view.session_data[session_data_key] = True

@@ -62,11 +62,11 @@ class Enum():
             key = (key,)
         return GenericAlias(cls, key)
 
-class OffsetType():
+class DisplacementOffset():
     @staticmethod
     def get_origin(type_spec) -> type:
         origin = get_origin(type_spec)
-        if not isinstance(origin, type) or not issubclass(origin, OffsetType):
+        if not isinstance(origin, type) or not issubclass(origin, DisplacementOffset):
             return None
 
         return origin
@@ -82,10 +82,6 @@ class OffsetType():
         return args[0]
 
     @classmethod
-    def get_typedef_ref(view: bn.BinaryView):
-        pass
-
-    @classmethod
     def get_relative_type(cls, type_spec) -> Optional['MemberTypeSpec']:
         origin = cls.get_origin(type_spec)
         if origin is None:
@@ -93,7 +89,7 @@ class OffsetType():
 
         args = get_args(type_spec)
         assert args is not None
-        return 'int' if len(args) < 2 else args[1]
+        return bn.Type.int(4, False, f'int __disp') if len(args) < 2 else args[1]
 
     @classmethod
     def __class_getitem__(cls, key: Any):
@@ -117,7 +113,7 @@ class OffsetType():
 
         return offset
 
-class RTTIOffsetType(OffsetType):
+class RTTIRelative(DisplacementOffset):
     @staticmethod
     def is_relative(view: bn.BinaryView):
         if view.arch.name == 'x86_64':
@@ -125,7 +121,7 @@ class RTTIOffsetType(OffsetType):
 
         return False
 
-class EHOffsetType(OffsetType):
+class EHRelative(DisplacementOffset):
     @staticmethod
     def is_relative(view: bn.BinaryView):
         if view.arch.name == 'x86_64':

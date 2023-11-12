@@ -41,7 +41,6 @@ class VisualCxxClass:
         try:
             return self.class_hierarchy_descriptor.type_name
         except Exception as e:
-            print(self.base_vftables)
             raise e
 
     def add_vftable(self, virtual_function_table: VirtualFunctionTable):
@@ -170,8 +169,6 @@ class VisualCxxClass:
                     base_classes.append(VisualCxxBaseClass(parent_class, parent_bcd))
 
                 if any(index is None for index in resolved_indexes):
-                    print(class_bcds)
-                    print(resolved_indexes)
                     raise ValueError()
 
                 changed = True

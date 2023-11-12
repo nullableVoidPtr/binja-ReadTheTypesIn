@@ -1,8 +1,8 @@
 from functools import cache
 import binaryninja as bn
-from .annotation import OffsetType, Enum, NamedCheckedTypeRef
+from .annotation import DisplacementOffset, Enum, NamedCheckedTypeRef
 
-MemberTypeSpec = str | bn.Type | type['CheckedTypeDataVar'] | type['RTTIOffsetType'] | type['Enum']
+MemberTypeSpec = str | bn.Type | type['CheckedTypeDataVar'] | type['DisplacementOffset'] | type['Enum']
 
 @cache
 def resolve_type_spec(view: bn.BinaryView, type_spec: MemberTypeSpec) -> bn.Type:
@@ -18,7 +18,7 @@ def resolve_type_spec(view: bn.BinaryView, type_spec: MemberTypeSpec) -> bn.Type
     if (ref := NamedCheckedTypeRef.get_ref(type_spec)) is not None:
         return ref
 
-    if (offset_type := OffsetType.get_origin(type_spec)) is not None:
+    if (offset_type := DisplacementOffset.get_origin(type_spec)) is not None:
         if (offset_target := offset_type.get_target(type_spec)) is not None:
             ptr_type = bn.Type.pointer(view.arch, resolve_type_spec(view, offset_target))
             return ptr_type if not offset_type.is_relative(view) else resolve_type_spec(

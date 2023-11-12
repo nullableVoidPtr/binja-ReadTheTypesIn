@@ -1,13 +1,13 @@
 from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, CheckedTypedef, EHOffsetType
+from ....types import CheckedTypeDataVar, CheckedTypedef, EHRelative
 from ....utils import get_data_sections
 from .handler_type import HandlerType
 
 class UnwindMapEntry(CheckedTypeDataVar, members=[
     ('int', 'toState'),
-    (EHOffsetType['void __cdecl (void)'], 'action'),
+    (EHRelative['void __cdecl (void)'], 'action'),
 ]):
     name = "UnwindMapEntry"
     alt_name = "_s_UnwindMapEntry"
@@ -20,7 +20,7 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
     ('int', 'tryHigh'),
     ('int', 'catchHigh'),
     ('int', 'nCatches'),
-    (EHOffsetType[HandlerType], 'pHandlerArray'),
+    (EHRelative[HandlerType], 'pHandlerArray'),
 ]):
     name = "TryBlockMapEntry"
     alt_name = "_s_TryBlockMapEntry"
@@ -33,7 +33,7 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
     def __getitem__(self, key: str):
         if key == 'pHandlerArray':
             handler_type_width = HandlerType.get_user_struct(self.view).width
-            handler_array_address = EHOffsetType.resolve_offset(
+            handler_array_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pHandlerArray'].value,
             )
@@ -49,7 +49,7 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
             return
 
         self.view.define_user_data_var(
-            EHOffsetType.resolve_offset(
+            EHRelative.resolve_offset(
                 self.view,
                 self.source['pHandlerArray'].value,
             ),
@@ -73,7 +73,7 @@ class IpToStateMapEntry(CheckedTypeDataVar, members=[
 
 class ESTypeList(CheckedTypeDataVar, members=[
     ('int', 'nCount'),
-    (EHOffsetType[HandlerType], 'pTypeArray'),
+    (EHRelative[HandlerType], 'pTypeArray'),
 ]):
     name = "ESTypeList"
     alt_name = "_s_ESTypeList"
@@ -83,7 +83,7 @@ class ESTypeList(CheckedTypeDataVar, members=[
     def __getitem__(self, key: str):
         if key == 'pTypeArray':
             handler_type_width = HandlerType.get_user_struct(self.view).width
-            type_array_address = EHOffsetType.resolve_offset(
+            type_array_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pTypeArray'].value,
             )
@@ -99,7 +99,7 @@ class ESTypeList(CheckedTypeDataVar, members=[
             return
 
         self.view.define_user_data_var(
-            EHOffsetType.resolve_offset(
+            EHRelative.resolve_offset(
                 self.view,
                 self.source['pTypeArray'].value,
             ),
@@ -114,11 +114,11 @@ class ESTypeList(CheckedTypeDataVar, members=[
 FUNC_INFO_MEMBERS = [
     ('unsigned int', 'magicNumberAndBBTFlag'),
     ('int', 'maxState'),
-    (EHOffsetType[UnwindMapEntry], 'pUnwindMap'),
+    (EHRelative[UnwindMapEntry], 'pUnwindMap'),
     ('unsigned int', 'nTryBlocks'),
-    (EHOffsetType[TryBlockMapEntry], 'pTryBlockMap'),
+    (EHRelative[TryBlockMapEntry], 'pTryBlockMap'),
     ('unsigned int', 'nIPMapEntries'),
-    (EHOffsetType[IpToStateMapEntry], 'pIPtoStateMap'),
+    (EHRelative[IpToStateMapEntry], 'pIPtoStateMap'),
 ]
 
 FUNC_INFO_MAGIC_NUMBERS = [
@@ -151,7 +151,7 @@ class _FuncInfoBase():
             raise ValueError('Invalid unwind map')
 
         unwind_entry_width = UnwindMapEntry.get_user_struct(self.view).width
-        unwind_map_address = EHOffsetType.resolve_offset(
+        unwind_map_address = EHRelative.resolve_offset(
             self.view,
             self.source['pUnwindMap'].value,
         )
@@ -168,7 +168,7 @@ class _FuncInfoBase():
             self.try_blocks = []
         else:
             try_block_entry_width = TryBlockMapEntry.get_user_struct(self.view).width
-            try_block_map_address = EHOffsetType.resolve_offset(
+            try_block_map_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pTryBlockMap'].value,
             )
@@ -185,7 +185,7 @@ class _FuncInfoBase():
             self.ip_map_entries = []
         else:
             ip_entry_width = IpToStateMapEntry.get_user_struct(self.view).width
-            ip_map_address = EHOffsetType.resolve_offset(
+            ip_map_address = EHRelative.resolve_offset(
                 view,
                 self.source['pIPtoStateMap'].value,
             )
@@ -200,7 +200,7 @@ class _FuncInfoBase():
     def mark_down_members(self):
         if self.max_state > 0:
             self.view.define_user_data_var(
-                EHOffsetType.resolve_offset(
+                EHRelative.resolve_offset(
                     self.view,
                     self.source['pUnwindMap'].value,
                 ),
@@ -214,7 +214,7 @@ class _FuncInfoBase():
 
         if len(self.try_blocks) > 0:
             self.view.define_user_data_var(
-                EHOffsetType.resolve_offset(
+                EHRelative.resolve_offset(
                     self.view,
                     self.source['pTryBlockMap'].value,
                 ),
@@ -228,7 +228,7 @@ class _FuncInfoBase():
 
         if len(self.ip_map_entries) > 0:
             self.view.define_user_data_var(
-                EHOffsetType.resolve_offset(
+                EHRelative.resolve_offset(
                     self.view,
                     self.source['pIPtoStateMap'].value,
                 ),
@@ -243,7 +243,7 @@ class _FuncInfoBase():
 class _FuncInfo(_FuncInfoBase, CheckedTypeDataVar,
     members=[
         *FUNC_INFO_MEMBERS,
-        (EHOffsetType[ESTypeList], 'pESTypeList'),
+        (EHRelative[ESTypeList], 'pESTypeList'),
         ('int', 'EHFlags'),
     ],
 ):
@@ -254,7 +254,7 @@ class _FuncInfo3(_FuncInfoBase, CheckedTypeDataVar,
     members=[
         *FUNC_INFO_MEMBERS,
         ('int', 'pUnwindHelp'),
-        (EHOffsetType[ESTypeList], 'pESTypeList'),
+        (EHRelative[ESTypeList], 'pESTypeList'),
         ('int', 'EHFlags'),
     ],
 ):
@@ -266,7 +266,7 @@ class FuncInfo(CheckedTypedef):
 
     @classmethod
     def get_actual_type(cls, view: bn.BinaryView) -> type[_FuncInfoBase]:
-        return _FuncInfo3 if EHOffsetType.is_relative(view) else _FuncInfo
+        return _FuncInfo3 if EHRelative.is_relative(view) else _FuncInfo
 
     @classmethod
     def search(

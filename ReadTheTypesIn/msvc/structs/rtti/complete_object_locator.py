@@ -2,7 +2,7 @@ from typing import Optional, Generator, Self, Annotated
 from enum import IntEnum
 import traceback
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, CheckedTypedef, Enum, RTTIOffsetType, NamedCheckedTypeRef
+from ....types import CheckedTypeDataVar, CheckedTypedef, Enum, RTTIRelative, NamedCheckedTypeRef
 from ....utils import get_data_sections
 from .type_descriptor import TypeDescriptor
 from .class_hierarchy_descriptor import ClassHierarchyDescriptor
@@ -15,8 +15,8 @@ COMPLETE_OBJECT_LOCATOR_MEMBERS = [
     (Enum[COLSignature, 'unsigned long'], 'signature'),
     ('unsigned long', 'offset'),
     ('unsigned long', 'cdOffset'),
-    (RTTIOffsetType[TypeDescriptor], 'pTypeDescriptor'),
-    (RTTIOffsetType[ClassHierarchyDescriptor], 'pClassDescriptor'),
+    (RTTIRelative[TypeDescriptor], 'pTypeDescriptor'),
+    (RTTIRelative[ClassHierarchyDescriptor], 'pClassDescriptor'),
 ]
 
 class _CompleteObjectLocatorBase():
@@ -55,7 +55,7 @@ class _CompleteObjectLocator(_CompleteObjectLocatorBase, CheckedTypeDataVar,
 class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
     members=[
         *COMPLETE_OBJECT_LOCATOR_MEMBERS,
-        (RTTIOffsetType[NamedCheckedTypeRef['_s_RTTICompleteObjectLocator2']], 'pSelf'),
+        (RTTIRelative[NamedCheckedTypeRef['_s_RTTICompleteObjectLocator2']], 'pSelf'),
     ],
 ):
     name = '_s_RTTICompleteObjectLocator2'
@@ -63,7 +63,7 @@ class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        if self.source['pSelf'].value != RTTIOffsetType.encode_offset(view, self.address):
+        if self.source['pSelf'].value != RTTIRelative.encode_offset(view, self.address):
             raise ValueError('Invalid pSelf')
 
     def mark_down_members(self):
@@ -71,7 +71,7 @@ class _CompleteObjectLocator2(_CompleteObjectLocatorBase, CheckedTypeDataVar,
             if name == 'pSelf':
                 continue
 
-            if RTTIOffsetType.get_target(mtype) is not None:
+            if RTTIRelative.get_target(mtype) is not None:
                 self[name].mark_down()
 
 class CompleteObjectLocator(CheckedTypedef):
@@ -79,14 +79,14 @@ class CompleteObjectLocator(CheckedTypedef):
 
     @classmethod
     def get_actual_type(cls, view: bn.BinaryView) -> type[_CompleteObjectLocatorBase]:
-        if RTTIOffsetType.is_relative(view):
+        if RTTIRelative.is_relative(view):
             return _CompleteObjectLocator2
 
         return _CompleteObjectLocator
 
     @classmethod
     def get_signature_rev(cls, view: bn.BinaryView) -> int:
-        if RTTIOffsetType.is_relative(view):
+        if RTTIRelative.is_relative(view):
             return COLSignature.COL_SIG_REV1
 
         return COLSignature.COL_SIG_REV0
@@ -98,7 +98,7 @@ class CompleteObjectLocator(CheckedTypedef):
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         type_desc_offsets = set(
-            RTTIOffsetType.encode_offset(view, desc.address)
+            RTTIRelative.encode_offset(view, desc.address)
             for desc in type_descriptors
             if not desc.decorated_name.startswith(".?AV<lambda")
         )
@@ -124,14 +124,14 @@ class CompleteObjectLocator(CheckedTypedef):
             if chd_offset in invalid_pchds or not any(
                 section in data_sections
                 for section in view.get_sections_at(
-                    RTTIOffsetType.resolve_offset(view, chd_offset)
+                    RTTIRelative.resolve_offset(view, chd_offset)
                 )
             ):
                 invalid_pchds.add(chd_offset)
                 return False
 
             if any(member.name == 'pSelf' for member in user_struct.members):
-                if accessor['pSelf'].value != RTTIOffsetType.encode_offset(view, accessor.address):
+                if accessor['pSelf'].value != RTTIRelative.encode_offset(view, accessor.address):
                     return False
 
             return True

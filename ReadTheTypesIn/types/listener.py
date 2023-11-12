@@ -1,7 +1,7 @@
 from typing import Optional
 import binaryninja as bn
 from .var import CheckedTypeDataVar
-from .annotation import OffsetType, RTTIOffsetType, EHOffsetType, Array
+from .annotation import DisplacementOffset, Array
 
 class RelativeOffsetListener(bn.BinaryDataNotification):
     def __init__(self):
@@ -26,9 +26,6 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
 
     def find_checked_type(self, view: bn.BinaryView, _type: bn.Type) \
         -> Optional[type[CheckedTypeDataVar]]:
-        if not RTTIOffsetType.is_relative(view) and not EHOffsetType.is_relative(view):
-            return None
-
         if isinstance(_type, bn.NamedTypeReferenceType):
             return next(
                 (
@@ -48,7 +45,6 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
                 (
                     scls
                     for scls in CheckedTypeDataVar.__subclasses__()
-                    # FIXME
                     if scls.alt_name == base.name
                 ),
                 None,
@@ -62,12 +58,12 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
             return
 
         for name, mtype in var_type.member_map.items():
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.add_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.add_user_data_ref(
                         element.address,
@@ -75,16 +71,15 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
                     )
 
         for name, mtype in var_type.virtual_relative_members.items():
-            print(name)
             if not any(member.name == name for member in var.type.members):
                 continue
 
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.add_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.add_user_data_ref(
                         element.address,
@@ -97,12 +92,12 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
             return
 
         for name, mtype in var_type.member_map.items():
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.add_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.add_user_data_ref(
                         element.address,
@@ -110,12 +105,12 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
                     )
 
         for name, mtype in var_type.virtual_relative_members.items():
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.add_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.add_user_data_ref(
                         element.address,
@@ -128,12 +123,12 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
             return
 
         for name, mtype in var_type.member_map.items():
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.remove_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.remove_user_data_ref(
                         element.address,
@@ -141,12 +136,12 @@ class RelativeOffsetListener(bn.BinaryDataNotification):
                     )
 
         for name, mtype in var_type.virtual_relative_members.items():
-            if (offset_type := OffsetType.get_origin(mtype)) is not None:
+            if (offset_type := DisplacementOffset.get_origin(mtype)) is not None:
                 view.remove_user_data_ref(
                     var[name].address,
                     offset_type.resolve_offset(view, var[name].value)
                 )
-            elif (offset_type := OffsetType.get_origin(Array.get_element_type(mtype))) is not None:
+            elif (offset_type := DisplacementOffset.get_origin(Array.get_element_type(mtype))) is not None:
                 for element in var[name]:
                     view.remove_user_data_ref(
                         element.address,

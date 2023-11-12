@@ -1,7 +1,7 @@
 from typing import Optional, Generator, Self, Annotated
 import traceback
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, RTTIOffsetType
+from ....types import CheckedTypeDataVar, RTTIRelative
 from ....utils import get_data_sections, get_function
 from .catchable_type import CatchableTypeArray
 
@@ -10,13 +10,13 @@ PATTERN_SHIFT_SIZE = 2
 class ThrowInfo(CheckedTypeDataVar,
     members=[
         ('unsigned long', 'attributes'),
-        (RTTIOffsetType[
+        (RTTIRelative[
             'void __cdecl (void *)'
         ], 'pmfnUnwind'),
-        (RTTIOffsetType[
+        (RTTIRelative[
             'int __cdecl (...)'
         ], 'pForwardCompat'),
-        (RTTIOffsetType[CatchableTypeArray], 'pCatchableTypeArray'),
+        (RTTIRelative[CatchableTypeArray], 'pCatchableTypeArray'),
     ]
 ):
     name = '_ThrowInfo'
@@ -31,7 +31,7 @@ class ThrowInfo(CheckedTypeDataVar,
         if key == 'pCatchableTypeArray':
             return CatchableTypeArray.create(
                 self.view,
-                RTTIOffsetType.resolve_offset(
+                RTTIRelative.resolve_offset(
                     self.view,
                     self.source[key].value
                 ),
@@ -57,7 +57,7 @@ class ThrowInfo(CheckedTypeDataVar,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         cta_offsets = set(
-            RTTIOffsetType.encode_offset(
+            RTTIRelative.encode_offset(
                 view,
                 cta.address
             )
@@ -82,7 +82,7 @@ class ThrowInfo(CheckedTypeDataVar,
 
             if get_function(
                 view,
-                RTTIOffsetType.resolve_offset(
+                RTTIRelative.resolve_offset(
                     view,
                     accessor['pmfnUnwind'].value,
                 )

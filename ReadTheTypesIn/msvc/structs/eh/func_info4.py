@@ -2,7 +2,7 @@ from enum import IntEnum, IntFlag
 from typing import Annotated, Optional
 import binaryninja as bn
 from ....types import CheckedTypeDataVar, Array, Enum
-from ....types.annotation import OffsetType
+from ....types.annotation import DisplacementOffset
 from ....utils import get_data_sections, get_function
 from ..rtti.type_descriptor import TypeDescriptor
 from ..rtti.base_class_descriptor import PMD
@@ -43,6 +43,12 @@ class CompressedIntRenderer(bn.DataRenderer):
         return _type.altname == "COMPRESSED_INT"
 
     def perform_get_lines_for_data(self, ctxt, view, address, _type, prefix, width, context):
+        for token in prefix:
+            if token.text == 'COMPRESSED_INT':
+                token.text = 'uint32_t'
+                token.width = len(token.text)
+                break
+
         value = read_compressed_int(view, address)
         token = bn.InstructionTextToken(
             bn.InstructionTextTokenType.IntegerToken,
@@ -67,7 +73,7 @@ class UnwindMapEntry4(CheckedTypeDataVar, members=[
     ('uint8_t', 'nextOffsetAndType'),
 ]):
     virtual_relative_members = {
-        'action': OffsetType['void __cdecl (void)'],
+        'action': DisplacementOffset['void __cdecl (void)'],
     }
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
@@ -86,7 +92,7 @@ class UnwindMapEntry4(CheckedTypeDataVar, members=[
         ]
 
         offset = 0
-        uint32_type = self.view.parse_type_string("uint32_t")[0]
+        disp_type = bn.Type.int(4, False, "int __disp")
 
         entry_type = UnwindMapEntryType(
             read_compressed_int(self.view, self.address + offset) & 0b11
@@ -104,7 +110,7 @@ class UnwindMapEntry4(CheckedTypeDataVar, members=[
         if entry_type != UnwindMapEntryType.NO_UNWIND:
             builder.insert(
                 offset,
-                uint32_type,
+                disp_type,
                 "action",
             )
             offset += 4
@@ -123,6 +129,78 @@ class UnwindMapEntry4(CheckedTypeDataVar, members=[
             offset += length
 
         return builder.immutable_copy()
+
+class UnwindMapRenderer(bn.DataRenderer):
+    def perform_is_valid_for_data(self, ctxt, view, _, _type, context):
+        if len(context) == 0:
+            return False
+
+        if not isinstance(_type, bn.IntegerType):
+            return False
+
+        if _type.altname != "COMPRESSED_INT":
+            return False
+
+        if context[-1].offset != 0:
+            return False
+
+        if not isinstance(context[-1].type, bn.StructureType):
+            return False
+
+        if len(context[-1].type.base_structures) == 0:
+            return False
+
+        return context[-1].type.base_structures[0].type.name == UnwindMapEntry4.alt_name
+
+    def perform_get_lines_for_data(self, ctxt, view, address, _type, prefix, width, context):
+        for token in prefix:
+            if token.text == 'COMPRESSED_INT':
+                token.text = 'uint32_t'
+                token.width = len(token.text)
+            elif token.text == 'nextOffsetAndType':
+                token.text = 'nextOffset'
+                token.width = len(token.text)
+
+        value = read_compressed_int(view, address)
+        next_offset = value >> 2
+        entry_type = UnwindMapEntryType(value & 0b11)
+        offset_token = bn.InstructionTextToken(
+            bn.InstructionTextTokenType.IntegerToken,
+            hex(value),
+            value,
+        )
+
+        enum_token = bn.InstructionTextToken(
+            bn.InstructionTextTokenType.EnumerationMemberToken,
+            entry_type.name,
+            int(entry_type),
+        )
+
+        return [
+            bn.DisassemblyTextLine([
+                *prefix,
+                offset_token,
+            ], address),
+            bn.DisassemblyTextLine([
+                bn.InstructionTextToken(
+                    bn.InstructionTextTokenType.TypeNameToken,
+                    "uint8_t",
+                ),
+                bn.InstructionTextToken(
+                    bn.InstructionTextTokenType.TextToken,
+                    " ",
+                ),
+                bn.InstructionTextToken(
+                    bn.InstructionTextTokenType.TextToken,
+                    "Type",
+                ),
+                bn.InstructionTextToken(
+                    bn.InstructionTextTokenType.TextToken,
+                    " = ",
+                ),
+                enum_token,
+            ], address),
+        ]
 
 class UwMap4(CheckedTypeDataVar, members=[
     ('uint8_t', 'numEntries'),
@@ -186,8 +264,8 @@ class HandlerType4(CheckedTypeDataVar, members=[
     (Enum[HandlerTypeHeader, 'uint8_t'], 'header'),
 ]):
     virtual_relative_members = {
-        'pType': OffsetType[TypeDescriptor],
-        'pOfHandler': OffsetType['void'],
+        'pType': DisplacementOffset[TypeDescriptor],
+        'pOfHandler': DisplacementOffset['void'],
     }
 
     header: HandlerTypeHeader
@@ -210,7 +288,7 @@ class HandlerType4(CheckedTypeDataVar, members=[
         ]
 
         offset = 1
-        uint32_type = self.view.parse_type_string("uint32_t")[0]
+        disp_type = bn.Type.int(4, False, "int __disp")
 
         if HandlerTypeHeader.HAS_ADJECTIVES in self.header:
             length_bits = self.view.read_int(self.address + offset, 1, False) & 0xF
@@ -225,7 +303,7 @@ class HandlerType4(CheckedTypeDataVar, members=[
         if HandlerTypeHeader.HAS_TYPE in self.header:
             builder.insert(
                 offset,
-                uint32_type,
+                disp_type,
                 "pType",
             )
             offset += 4
@@ -242,7 +320,7 @@ class HandlerType4(CheckedTypeDataVar, members=[
 
         builder.insert(
             offset,
-            uint32_type,
+            disp_type,
             "pOfHandler",
         )
         offset += 4
@@ -315,7 +393,7 @@ class TryBlockMapEntry4(CheckedTypeDataVar, members=[
     ('uint8_t', 'tryLow'),
 ]):
     virtual_relative_members = {
-        'pHandlerArray': OffsetType[HandlerMap4],
+        'pHandlerArray': DisplacementOffset[HandlerMap4],
     }
 
     handler_array: HandlerMap4
@@ -343,7 +421,7 @@ class TryBlockMapEntry4(CheckedTypeDataVar, members=[
         ]
 
         offset = 0
-        uint32_type = self.view.parse_type_string("uint32_t")[0]
+        disp_type = bn.Type.int(4, False, "int __disp")
 
         length_bits = self.view.read_int(self.address + offset, 1, False) & 0xF
         length = COMPRESSED_INT_LENGTH[length_bits]
@@ -374,7 +452,7 @@ class TryBlockMapEntry4(CheckedTypeDataVar, members=[
 
         builder.insert(
             offset,
-            uint32_type,
+            disp_type,
             "pHandlerArray",
         )
         offset += 4
@@ -544,9 +622,9 @@ class FuncInfo4(CheckedTypeDataVar,
     ],
 ):
     virtual_relative_members = {
-        'pUnwindMap': OffsetType[UnwindMapEntry4],
-        'pTryBlockMap': OffsetType[TryBlockMap4],
-        'pIPtoStateMap': OffsetType[IPtoStateMap4]
+        'pUnwindMap': DisplacementOffset[UnwindMapEntry4],
+        'pTryBlockMap': DisplacementOffset[TryBlockMap4],
+        'pIPtoStateMap': DisplacementOffset[IPtoStateMap4]
     }
 
     packed = True
@@ -606,7 +684,7 @@ class FuncInfo4(CheckedTypeDataVar,
         ]
 
         offset = self.get_user_struct(self.view).width
-        uint32_type = self.view.parse_type_string("uint32_t")[0]
+        disp_type = bn.Type.int(4, False, "int __disp")
         if FuncInfoHeader.BBT in self.header:
             length_bits = self.view.read_int(self.address + offset, 1, False) & 0xF
             length = COMPRESSED_INT_LENGTH[length_bits]
@@ -620,7 +698,7 @@ class FuncInfo4(CheckedTypeDataVar,
         if FuncInfoHeader.HAS_UNWIND_MAP in self.header:
             builder.insert(
                 offset,
-                uint32_type,
+                disp_type,
                 "pUnwindMap",
             )
             offset += 4
@@ -628,14 +706,14 @@ class FuncInfo4(CheckedTypeDataVar,
         if FuncInfoHeader.HAS_TRY_BLOCK_MAP in self.header:
             builder.insert(
                 offset,
-                uint32_type,
+                disp_type,
                 "pTryBlockMap",
             )
             offset += 4
 
         builder.insert(
             offset,
-            uint32_type,
+            disp_type,
             "pIPtoStateMap",
         )
         offset += 4

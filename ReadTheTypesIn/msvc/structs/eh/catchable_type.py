@@ -2,7 +2,7 @@ from typing import Optional, Generator, Self, Annotated
 from enum import IntFlag
 import traceback
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, Array, Enum, RTTIOffsetType
+from ....types import CheckedTypeDataVar, Array, Enum, RTTIRelative
 from ....utils import get_data_sections, get_function
 from ..rtti.type_descriptor import TypeDescriptor
 from ..rtti.base_class_descriptor import PMD
@@ -19,10 +19,10 @@ class CTProperties(IntFlag):
 class CatchableType(CheckedTypeDataVar,
     members=[
         (Enum[CTProperties, 'unsigned int'], 'properties'),
-        (RTTIOffsetType[TypeDescriptor], 'pType'),
+        (RTTIRelative[TypeDescriptor], 'pType'),
         (PMD, 'thisDisplacement'),
         ('int', 'sizeOrOffset'),
-        (RTTIOffsetType[
+        (RTTIRelative[
             'void __cdecl (void *)'
         ], 'copyFunction'),
     ],
@@ -54,7 +54,7 @@ class CatchableType(CheckedTypeDataVar,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         type_desc_offsets = set(
-            RTTIOffsetType.encode_offset(
+            RTTIRelative.encode_offset(
                 view,
                 type_desc.address
             )
@@ -79,7 +79,7 @@ class CatchableType(CheckedTypeDataVar,
 
             if get_function(
                 view,
-                RTTIOffsetType.resolve_offset(
+                RTTIRelative.resolve_offset(
                     view,
                     accessor['copyFunction'].value,
                 )
@@ -139,11 +139,11 @@ class CatchableType(CheckedTypeDataVar,
 class CatchableTypeArray(CheckedTypeDataVar,
     members=[
         ('int', 'nCatchableTypes'),
-        (Array[RTTIOffsetType[CatchableType], ...], 'arrayOfCatchableTypes'),
+        (Array[RTTIRelative[CatchableType], ...], 'arrayOfCatchableTypes'),
     ],
 ):
-    name='_CatchableTypeArray'
-    alt_name='_s_CatchableTypeArray'
+    name = '_CatchableTypeArray'
+    alt_name = '_s_CatchableTypeArray'
 
     length: int
     catchable_type_array: list[CatchableType]
@@ -199,7 +199,7 @@ class CatchableTypeArray(CheckedTypeDataVar,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
         ct_offsets = set(
-            RTTIOffsetType.encode_offset(
+            RTTIRelative.encode_offset(
                 view,
                 ct.address
             )
@@ -274,7 +274,7 @@ class CatchableTypeArray(CheckedTypeDataVar,
                         try:
                             CatchableType.create(
                                 view,
-                                RTTIOffsetType.resolve_offset(view, offset)
+                                RTTIRelative.resolve_offset(view, offset)
                             )
                         except ValueError:
                             break

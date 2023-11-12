@@ -229,7 +229,10 @@ class ImageRuntimeFunction:
                 import traceback
                 bn.log.log_warn(
                     f"Failed to parse ImageRuntimeFunction @ {address:x}",
-                    "ImageRuntimeFunction"
+                    "ImageRuntimeFunction::search"
                 )
-                print(traceback.format_exc(e))
+                bn.log.log_debug(
+                    traceback.format_exc(e),
+                    "ImageRuntimeFunction::search"
+                )
                 continue

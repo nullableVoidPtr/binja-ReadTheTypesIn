@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import binaryninja as bn
 from ..types import RelativeOffsetRenderer, EnumRenderer, RelativeOffsetListener
-from ..types.annotation import OffsetType
+from ..types.annotation import DisplacementOffset
 from .structs.rtti.type_descriptor import TypeDescriptor
 from .structs.rtti.base_class_descriptor import \
     BaseClassDescriptor, BaseClassArray
@@ -14,11 +14,14 @@ from .structs.virtual_function_table import VirtualFunctionTable
 from .structs.eh.catchable_type import CatchableType, CatchableTypeArray
 from .structs.eh.throw_info import ThrowInfo
 from .structs.eh.func_info import FuncInfo
-from .structs.eh.func_info4 import FuncInfo4, CompressedIntRenderer
+from .structs.eh.func_info4 import FuncInfo4, CompressedIntRenderer, UnwindMapRenderer
+from .structs.eh.scope_table import ScopeTable,  ScopeHandlerRenderer
 from .structs.eh.image_runtime_function import ImageRuntimeFunction
 from .class_info import VisualCxxBaseClass, VisualCxxClass
 
 def register_renderers():
+    ScopeHandlerRenderer().register_type_specific()
+    UnwindMapRenderer().register_type_specific()
     RelativeOffsetRenderer().register_type_specific()
     EnumRenderer().register_type_specific()
     CompressedIntRenderer().register_type_specific()
@@ -139,7 +142,7 @@ def parse_eh64(
     task: Optional[bn.BackgroundTask] = None,
 ):
     func_info_offsets = set(
-        OffsetType.encode_offset(view, fi.address)
+        DisplacementOffset.encode_offset(view, fi.address)
         for fi in func_infos
     )
 
@@ -158,6 +161,7 @@ def parse_eh64(
     }
 
     new_func_infos = []
+    c_specific_tables = []
     for irf in image_runtime_funcs:
         unwind_info = irf.unwind_info
         personality = exception_handlers.get(unwind_info.exception_handler)
@@ -165,19 +169,26 @@ def parse_eh64(
             continue
 
         if personality in [MSVCExceptionPersonality.GS_EH, MSVCExceptionPersonality.CXX_FRAME]:
-            view.define_user_data_var(unwind_info.exception_handler_data_start, 'uint32_t')
+            view.define_user_data_var(unwind_info.exception_handler_data_start, bn.Type.int(4, False, 'int __disp'))
             if personality == MSVCExceptionPersonality.GS_EH:
-                view.define_user_data_var(unwind_info.exception_handler_data_start + 4, 'uint32_t')
+                view.define_user_data_var(unwind_info.exception_handler_data_start + 4, bn.Type.int(4, False))
 
             offset = view.read_int(unwind_info.exception_handler_data_start, 4, False)
             if offset in func_info_offsets:
                 continue
 
             func_info_address = view.start + offset
-            print(f"FuncInfo {func_info_address:x}")
             fi = FuncInfo4.create(view, func_info_address)
             fi.mark_down()
             new_func_infos.append(fi)
+        elif personality == MSVCExceptionPersonality.GS:
+            view.define_user_data_var(unwind_info.exception_handler_data_start, bn.Type.int(4, False))
+        elif personality in [MSVCExceptionPersonality.GS_EH, MSVCExceptionPersonality.C_SPECIFIC]:
+            st = ScopeTable.create(view, unwind_info.exception_handler_data_start)
+            st.mark_down()
+            c_specific_tables.append(st)
+            if personality == MSVCExceptionPersonality.GS_EH:
+                view.define_user_data_var(st.address + st.type.width, bn.Type.int(4, False))
 
 def search_eh(
     view: bn.BinaryView,
@@ -353,10 +364,19 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
         view.create_tag_type("Potential destructors (RTTI)", "💥")
 
         classes = search_rtti(view, task)
-        print(f"{len(classes)} classes identified")
+        bn.log.log_info(
+            f"{len(classes)} classes identified",
+            "ReadTheTypesIn::search",
+        )
         throw_infos, func_infos = search_eh(view, task)
-        print(f"{len(throw_infos)} exceptions identified")
-        print(f"{len(func_infos)} FuncInfos identified")
+        bn.log.log_info(
+            f"{len(throw_infos)} exceptions identified",
+            "ReadTheTypesIn::search",
+        )
+        bn.log.log_info(
+            f"{len(func_infos)} FuncInfos identified",
+            "ReadTheTypesIn::search",
+        )
 
     resolved_classes = VisualCxxClass.structure(classes, task)
     with view.undoable_transaction():
@@ -372,7 +392,10 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
                 view.define_user_data_var(address, vft.type, vft.name())
 
         constructors = search_structors(view, classes, task)
-        print(f"{len(constructors)} constructors identified")
+        bn.log.log_info(
+            f"{len(constructors)} constructors identified",
+            "ReadTheTypesIn::search",
+        )
 
 __all__ = [
     'TypeDescriptor',

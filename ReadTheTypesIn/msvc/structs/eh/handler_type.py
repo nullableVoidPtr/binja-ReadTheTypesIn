@@ -1,13 +1,13 @@
 from typing import Optional, Annotated
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, CheckedTypedef, EHOffsetType
+from ....types import CheckedTypeDataVar, CheckedTypedef, EHRelative
 from ..rtti.type_descriptor import TypeDescriptor
 
 HANDLER_TYPE_MEMBERS = [
     ('unsigned int', 'adjectives'),
-    (EHOffsetType[TypeDescriptor], 'pType'),
+    (EHRelative[TypeDescriptor], 'pType'),
     ('int', 'dispCatchObj'),
-    (EHOffsetType['void'], 'pHandler'),
+    (EHRelative['void'], 'pHandler'),
 ]
 
 class _HandlerTypeBase():
@@ -50,4 +50,4 @@ class HandlerType(CheckedTypedef):
 
     @classmethod
     def get_actual_type(cls, view: bn.BinaryView) -> type[_HandlerTypeBase]:
-        return _HandlerType2 if EHOffsetType.is_relative(view) else _HandlerType
+        return _HandlerType2 if EHRelative.is_relative(view) else _HandlerType

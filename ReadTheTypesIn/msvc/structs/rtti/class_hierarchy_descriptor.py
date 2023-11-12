@@ -1,7 +1,7 @@
 from typing import Annotated
 from enum import IntFlag
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, Enum, RTTIOffsetType
+from ....types import CheckedTypeDataVar, Enum, RTTIRelative
 from .base_class_descriptor import BaseClassArray
 
 class CHDAttributes(IntFlag):
@@ -14,7 +14,7 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         ('unsigned long', 'signature'),
         (Enum[CHDAttributes, 'unsigned long'], 'attributes'),
         ('unsigned long', 'numBaseClasses'),
-        (RTTIOffsetType[BaseClassArray], 'pBaseClassArray'),
+        (RTTIRelative[BaseClassArray], 'pBaseClassArray'),
     ]
 ):
     name = '_RTTIClassHierarchyDescriptor'
@@ -32,7 +32,7 @@ class ClassHierarchyDescriptor(CheckedTypeDataVar,
         if key == 'pBaseClassArray':
             return BaseClassArray.create(
                 self.view,
-                RTTIOffsetType.resolve_offset(
+                RTTIRelative.resolve_offset(
                     self.view,
                     self.source[key].value
                 ),

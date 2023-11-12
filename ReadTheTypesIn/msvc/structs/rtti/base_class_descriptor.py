@@ -1,7 +1,7 @@
 from typing import Optional, Annotated
 from enum import IntFlag
 import binaryninja as bn
-from ....types import CheckedTypeDataVar, Array, Enum, RTTIOffsetType, NamedCheckedTypeRef
+from ....types import CheckedTypeDataVar, Array, Enum, RTTIRelative, NamedCheckedTypeRef
 from .type_descriptor import TypeDescriptor
 
 class PMD(CheckedTypeDataVar, members=[
@@ -24,11 +24,11 @@ class BCDAttributes(IntFlag):
 
 class BaseClassDescriptor(CheckedTypeDataVar,
     members=[
-        (RTTIOffsetType[TypeDescriptor], 'pTypeDescriptor'),
+        (RTTIRelative[TypeDescriptor], 'pTypeDescriptor'),
         ('unsigned long', 'numContainedBases'),
         (PMD, 'where'),
         (Enum[BCDAttributes, 'unsigned long'], 'attributes'),
-        (RTTIOffsetType[
+        (RTTIRelative[
             NamedCheckedTypeRef['_RTTIClassHierarchyDescriptor']
         ], 'pClassDescriptor'),
     ],
@@ -71,7 +71,7 @@ class BaseClassDescriptor(CheckedTypeDataVar,
 
 class BaseClassArray(CheckedTypeDataVar,
     members=[
-        (Array[RTTIOffsetType[BaseClassDescriptor], ...], 'arrayOfBaseClassDescriptors'),
+        (Array[RTTIRelative[BaseClassDescriptor], ...], 'arrayOfBaseClassDescriptors'),
     ],
 ):
     name = '_RTTIBaseClassArray'
