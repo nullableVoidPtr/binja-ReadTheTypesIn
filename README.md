@@ -18,8 +18,8 @@ Currently works for MSVC 32/64-bit binaries.
 * Class structure definition w/ automatic width and detected members
 * Pseudo C++ Linear View
   * `__try`/`__except` using EH data
-    * Parsing `UNWIND_INFO` instances
-    * EH4
+    * ~~Parsing `UNWIND_INFO` instances~~
+    * ~~EH4~~
   * Converting `__CxxThrowException` to `throw` statements
 * Itanium
 

@@ -32,7 +32,7 @@ class TryBlockMapEntry(CheckedTypeDataVar, members=[
 
     def __getitem__(self, key: str):
         if key == 'pHandlerArray':
-            handler_type_width = HandlerType.get_user_struct(self.view).width
+            handler_type_width = HandlerType.get_structure(self.view).width
             handler_array_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pHandlerArray'].value,
@@ -78,11 +78,11 @@ class ESTypeList(CheckedTypeDataVar, members=[
     name = "ESTypeList"
     alt_name = "_s_ESTypeList"
 
-    types: list[HandlerType]
+    types: Annotated[list[HandlerType], 'pTypeArray']
 
     def __getitem__(self, key: str):
         if key == 'pTypeArray':
-            handler_type_width = HandlerType.get_user_struct(self.view).width
+            handler_type_width = HandlerType.get_structure(self.view).width
             type_array_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pTypeArray'].value,
@@ -128,7 +128,7 @@ FUNC_INFO_MAGIC_NUMBERS = [
     b'\x00\x40\x99\x01',
 ]
 
-class _FuncInfoBase():
+class _FuncInfoBase:
     view: bn.BinaryView
     source: bn.TypedDataAccessor
 
@@ -150,7 +150,7 @@ class _FuncInfoBase():
         if first_unwind_map.to_state > self.max_state:
             raise ValueError('Invalid unwind map')
 
-        unwind_entry_width = UnwindMapEntry.get_user_struct(self.view).width
+        unwind_entry_width = UnwindMapEntry.get_structure(self.view).width
         unwind_map_address = EHRelative.resolve_offset(
             self.view,
             self.source['pUnwindMap'].value,
@@ -167,7 +167,7 @@ class _FuncInfoBase():
         if try_block_map_length == 0:
             self.try_blocks = []
         else:
-            try_block_entry_width = TryBlockMapEntry.get_user_struct(self.view).width
+            try_block_entry_width = TryBlockMapEntry.get_structure(self.view).width
             try_block_map_address = EHRelative.resolve_offset(
                 self.view,
                 self.source['pTryBlockMap'].value,
@@ -184,7 +184,7 @@ class _FuncInfoBase():
         if ip_map_length == 0:
             self.ip_map_entries = []
         else:
-            ip_entry_width = IpToStateMapEntry.get_user_struct(self.view).width
+            ip_entry_width = IpToStateMapEntry.get_structure(self.view).width
             ip_map_address = EHRelative.resolve_offset(
                 view,
                 self.source['pIPtoStateMap'].value,
@@ -273,7 +273,7 @@ class FuncInfo(CheckedTypedef):
         cls, view: bn.BinaryView,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
-        user_struct = cls.get_user_struct(view)
+        structure = cls.get_structure(view)
 
         matches = []
         def update_progress(processed: int, total: int) -> bool:
@@ -293,7 +293,7 @@ class FuncInfo(CheckedTypedef):
             return True
 
         def process_match(address: int, _: bn.databuffer.DataBuffer) -> bool:
-            accessor = view.typed_data_accessor(address, user_struct)
+            accessor = view.typed_data_accessor(address, structure)
             if is_potential_func_info(accessor):
                 matches.append(accessor)
 

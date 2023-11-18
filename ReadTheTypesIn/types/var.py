@@ -1,4 +1,5 @@
 from typing import Optional, ClassVar, Mapping, Self, Annotated, get_origin
+from functools import cache
 from weakref import WeakKeyDictionary
 import binaryninja as bn
 from .resolver import resolve_type_spec
@@ -9,11 +10,12 @@ class CheckedTypeDataVar:
     name: ClassVar[str]
     alt_name: ClassVar[str]
 
-    virtual_relative_members: ClassVar[dict[str, bn.Type]] = {}
-
     packed: ClassVar[bool] = False
     members: ClassVar[list[tuple[bn.Type, str]]]
     member_map: ClassVar[dict[str, bn.Type]]
+
+    value_dependent: ClassVar[bool] = False
+    virtual_relative_members: ClassVar[dict[str, bn.Type]] = {}
 
     _attr_map: ClassVar[dict[str, str]]
 
@@ -66,32 +68,49 @@ class CheckedTypeDataVar:
                 raise TypeError(
                     f"Flexible array member {mname} is not the last member"
                 )
+            cls.value_dependent = True
 
         if getattr(cls, '__instances__', None) is None:
             cls.__instances__ = WeakKeyDictionary()
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         if isinstance(source, bn.TypedDataAccessor):
-            user_struct = self.get_user_struct(source.view)
-            if source.type != user_struct:
-                raise TypeError(
-                    f"Expected type of accessor to be {repr(user_struct)}, got {repr(source.type)}"
-                )
+            if not self.value_dependent:
+                structure = self.get_structure(source.view)
+                if source.type != structure:
+                    raise TypeError(
+                        f"Expected type of accessor to be {repr(structure)}, got {repr(source.type)}"
+                    )
         else:
             source = view.typed_data_accessor(
                 source,
-                self.get_user_struct(view),
+                self.get_structure(view),
             )
 
         self.source = source
-
-        for attr, member in self._attr_map.items():
-            setattr(self, attr, self[member])
+        if self.value_dependent:
+            self.source = view.typed_data_accessor(
+                self.source.address,
+                self.type,
+            )
 
     def __getitem__(self, key: str):
         from .typedef import CheckedTypedef
 
-        member_source = self.source[key]
+        if len(self.source.type.base_structures) == 0:
+            member_source = self.source[key]
+        else:
+            for inherited in self.source.type.members_including_inherited(self.view):
+                if inherited.member.name != key:
+                    continue
+
+                member_source = self.view.typed_data_accessor(
+                    self.source.address + inherited.base_offset + inherited.member.offset,
+                    inherited.member.type,
+                )
+                break
+            else:
+                raise KeyError(f"No member {key} in structure")
 
         target_type = self.member_map[key]
 
@@ -192,6 +211,13 @@ class CheckedTypeDataVar:
 
         return member_source
 
+    def __getattr__(self, name: str):
+        field = self._attr_map.get(name)
+        if field is None:
+            raise AttributeError(f"No field for {name}")
+
+        return self[field]
+
     def __repr__(self):
         suffix = '' if self.type_name is None else f': {self.type_name}'
         return f"<{self.__class__.__name__} 0x{self.address:x}{suffix}>"
@@ -217,7 +243,7 @@ class CheckedTypeDataVar:
                 resolve_type_spec(self.view, element_type),
                 self.get_array_length(last_name),
             ),
-            self.get_user_struct(self.view).width,
+            self.get_structure(self.view).width,
         )
 
         return builder.immutable_copy()
@@ -365,7 +391,7 @@ class CheckedTypeDataVar:
                     view.session_data[session_data_key] = True
                     return old_type
 
-        view.define_user_type(cls.alt_name, structure)
+        view.define_type(cls.alt_name, cls.alt_name, structure)
         view.session_data[session_data_key] = True
 
         return view.types.get(cls.alt_name)
@@ -384,11 +410,11 @@ class CheckedTypeDataVar:
                     view.session_data[session_data_key] = True
                     return
 
-        view.define_user_type(cls.name, struct_ref)
+        view.define_type(cls.name, cls.name, struct_ref)
         view.session_data[session_data_key] = True
 
     @classmethod
-    def define_user_type(cls, view: bn.BinaryView):
+    def define_type(cls, view: bn.BinaryView):
         cls.define_structure(view)
         cls.define_typedef(view)
 
@@ -397,7 +423,7 @@ class CheckedTypeDataVar:
         return self.source.address
 
     @classmethod
-    def get_user_struct(cls, view: bn.BinaryView) -> bn.Type:
+    def get_structure(cls, view: bn.BinaryView) -> bn.Type:
         cls.define_structure(view)
         return view.get_type_by_name(cls.alt_name)
 
@@ -413,7 +439,7 @@ class CheckedTypeDataVar:
 
     @classmethod
     def get_alignment(cls, view: bn.BinaryView) -> int:
-        return cls.get_user_struct(view).alignment
+        return cls.get_structure(view).alignment
 
     @classmethod
     def get_instances(cls, view: bn.BinaryView) -> list[Self]:

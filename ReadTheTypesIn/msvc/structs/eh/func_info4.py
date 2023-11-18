@@ -72,16 +72,10 @@ class UnwindMapEntryType(IntEnum):
 class UnwindMapEntry4(CheckedTypeDataVar, members=[
     ('uint8_t', 'nextOffsetAndType'),
 ]):
+    value_dependent = True
     virtual_relative_members = {
         'action': DisplacementOffset['void __cdecl (void)'],
     }
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
 
     @property
     def type(self) -> bn.Type:
@@ -263,21 +257,13 @@ class HandlerTypeHeader(IntFlag):
 class HandlerType4(CheckedTypeDataVar, members=[
     (Enum[HandlerTypeHeader, 'uint8_t'], 'header'),
 ]):
+    value_dependent = True
     virtual_relative_members = {
         'pType': DisplacementOffset[TypeDescriptor],
         'pOfHandler': DisplacementOffset['void'],
     }
 
-    header: HandlerTypeHeader
-    cont_addr_count: int
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.header = self['header']
-        self.cont_addr_count = (self.source['header'].value >> 4) & 0b11
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
+    header: Annotated[HandlerTypeHeader, 'header']
 
     @property
     def type(self) -> bn.Type:
@@ -325,7 +311,8 @@ class HandlerType4(CheckedTypeDataVar, members=[
         )
         offset += 4
 
-        for i in range(self.cont_addr_count):
+        cont_addr_count = (self['header'].value >> 4) & 0b11
+        for i in range(cont_addr_count):
             length_bits = self.view.read_int(self.address + offset, 1, False) & 0xF
             length = COMPRESSED_INT_LENGTH[length_bits]
             builder.insert(
@@ -392,6 +379,7 @@ class HandlerMap4(CheckedTypeDataVar, members=[
 class TryBlockMapEntry4(CheckedTypeDataVar, members=[
     ('uint8_t', 'tryLow'),
 ]):
+    value_dependent = True
     virtual_relative_members = {
         'pHandlerArray': DisplacementOffset[HandlerMap4],
     }
@@ -400,10 +388,6 @@ class TryBlockMapEntry4(CheckedTypeDataVar, members=[
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
         self.handler_array = HandlerMap4.create(
             self.view,
             self.view.start + self.source['pHandlerArray'].value,
@@ -518,12 +502,7 @@ class TryBlockMap4(CheckedTypeDataVar, members=[
 class IPtoStateMapEntry4(CheckedTypeDataVar, members=[
     ('uint8_t', 'Ip'),
 ]):
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
+    value_dependent = True
 
     @property
     def type(self) -> bn.Type:
@@ -621,6 +600,7 @@ class FuncInfo4(CheckedTypeDataVar,
         (Enum[FuncInfoHeader, 'uint8_t'], 'header'),
     ],
 ):
+    value_dependent = True
     virtual_relative_members = {
         'pUnwindMap': DisplacementOffset[UnwindMapEntry4],
         'pTryBlockMap': DisplacementOffset[TryBlockMap4],
@@ -637,10 +617,6 @@ class FuncInfo4(CheckedTypeDataVar,
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
         super().__init__(view, source)
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
 
         self.unwind_map = None
         self.try_block_map = None
@@ -683,7 +659,7 @@ class FuncInfo4(CheckedTypeDataVar,
             bn.BaseStructure(self.get_struct_ref(self.view), 0)
         ]
 
-        offset = self.get_user_struct(self.view).width
+        offset = self.get_structure(self.view).width
         disp_type = bn.Type.int(4, False, "int __disp")
         if FuncInfoHeader.BBT in self.header:
             length_bits = self.view.read_int(self.address + offset, 1, False) & 0xF

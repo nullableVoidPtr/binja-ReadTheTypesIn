@@ -19,7 +19,7 @@ COMPLETE_OBJECT_LOCATOR_MEMBERS = [
     (RTTIRelative[ClassHierarchyDescriptor], 'pClassDescriptor'),
 ]
 
-class _CompleteObjectLocatorBase():
+class _CompleteObjectLocatorBase:
     offset: Annotated[int, 'offset']
     complete_displacement_offset: Annotated[int, 'cdOffset']
     type_descriptor: Annotated[TypeDescriptor, 'pTypeDescriptor']
@@ -104,7 +104,7 @@ class CompleteObjectLocator(CheckedTypedef):
         )
 
         data_sections = list(get_data_sections(view))
-        user_struct = cls.get_user_struct(view)
+        structure = cls.get_structure(view)
 
         invalid_pchds = set()
         matches = []
@@ -130,21 +130,21 @@ class CompleteObjectLocator(CheckedTypedef):
                 invalid_pchds.add(chd_offset)
                 return False
 
-            if any(member.name == 'pSelf' for member in user_struct.members):
+            if any(member.name == 'pSelf' for member in structure.members):
                 if accessor['pSelf'].value != RTTIRelative.encode_offset(view, accessor.address):
                     return False
 
             return True
 
         def process_match(address: int, _: bn.databuffer.DataBuffer) -> bool:
-            accessor = view.typed_data_accessor(address, user_struct)
+            accessor = view.typed_data_accessor(address, structure)
             if is_potential_complete_object_locator(accessor):
                 matches.append(accessor)
 
             return True
 
         signature = cls.get_signature_rev(view).to_bytes(
-            user_struct['signature'].type.width,
+            structure['signature'].type.width,
             'little' if view.endianness is bn.Endianness.LittleEndian else 'big'
         )
 

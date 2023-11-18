@@ -10,7 +10,7 @@ HANDLER_TYPE_MEMBERS = [
     (EHRelative['void'], 'pHandler'),
 ]
 
-class _HandlerTypeBase():
+class _HandlerTypeBase:
     source: bn.TypedDataAccessor
 
     adjectives: Annotated[int, 'adjectives']

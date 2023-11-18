@@ -64,8 +64,8 @@ class ThrowInfo(CheckedTypeDataVar,
             for cta in catchable_type_arrays
         )
 
-        user_struct = cls.get_user_struct(view)
-        array_offset = user_struct['pCatchableTypeArray'].offset
+        structure = cls.get_structure(view)
+        array_offset = structure['pCatchableTypeArray'].offset
 
         matches = []
         def update_progress(processed: int, total: int) -> bool:
@@ -93,7 +93,7 @@ class ThrowInfo(CheckedTypeDataVar,
 
         def process_match(address: int, _: bn.databuffer.DataBuffer) -> bool:
             address -= PATTERN_SHIFT_SIZE
-            accessor = view.typed_data_accessor(address - array_offset, user_struct)
+            accessor = view.typed_data_accessor(address - array_offset, structure)
             if is_potential_throw_info(accessor):
                 matches.append(accessor)
 

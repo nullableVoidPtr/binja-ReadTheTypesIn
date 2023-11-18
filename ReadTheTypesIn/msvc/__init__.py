@@ -162,18 +162,31 @@ def parse_eh64(
 
     new_func_infos = []
     c_specific_tables = []
-    for irf in image_runtime_funcs:
+    total = len(image_runtime_funcs)
+    for i, irf in enumerate(image_runtime_funcs):
+        if task is not None:
+            task.progress = f"Processing Image Runtime Function ({i}/{total})"
+
         unwind_info = irf.unwind_info
         personality = exception_handlers.get(unwind_info.exception_handler)
         if personality is None:
             continue
 
+        data_start = unwind_info.exception_handler_data_start
         if personality in [MSVCExceptionPersonality.GS_EH, MSVCExceptionPersonality.CXX_FRAME]:
-            view.define_user_data_var(unwind_info.exception_handler_data_start, bn.Type.int(4, False, 'int __disp'))
+            view.define_user_data_var(
+                data_start,
+                bn.Type.int(4, False, 'int __disp'),
+                f"pFuncInfo_{data_start:x}"
+            )
             if personality == MSVCExceptionPersonality.GS_EH:
-                view.define_user_data_var(unwind_info.exception_handler_data_start + 4, bn.Type.int(4, False))
+                view.define_user_data_var(
+                    data_start + 4,
+                    bn.Type.int(4, False),
+                    f"GSCookieOffset_{data_start + 4:x}"
+                )
 
-            offset = view.read_int(unwind_info.exception_handler_data_start, 4, False)
+            offset = view.read_int(data_start, 4, False)
             if offset in func_info_offsets:
                 continue
 
@@ -182,13 +195,21 @@ def parse_eh64(
             fi.mark_down()
             new_func_infos.append(fi)
         elif personality == MSVCExceptionPersonality.GS:
-            view.define_user_data_var(unwind_info.exception_handler_data_start, bn.Type.int(4, False))
-        elif personality in [MSVCExceptionPersonality.GS_EH, MSVCExceptionPersonality.C_SPECIFIC]:
-            st = ScopeTable.create(view, unwind_info.exception_handler_data_start)
+            view.define_user_data_var(
+                data_start,
+                bn.Type.int(4, False),
+                f"GSCookieOffset_{data_start:x}"
+            )
+        elif personality in [MSVCExceptionPersonality.GS_SEH, MSVCExceptionPersonality.C_SPECIFIC]:
+            st = ScopeTable.create(view, data_start)
             st.mark_down()
             c_specific_tables.append(st)
-            if personality == MSVCExceptionPersonality.GS_EH:
-                view.define_user_data_var(st.address + st.type.width, bn.Type.int(4, False))
+            if personality == MSVCExceptionPersonality.GS_SEH:
+                view.define_user_data_var(
+                    data_start + st.type.width,
+                    bn.Type.int(4, False),
+                    f"GSCookieOffset_{data_start + st.type.width:x}"
+                )
 
 def search_eh(
     view: bn.BinaryView,
@@ -391,6 +412,14 @@ def search(view: bn.BinaryView, task: Optional[bn.BackgroundTask] = None):
                 address = vft.address - view.address_size
                 view.define_user_data_var(address, vft.type, vft.name())
 
+        for cls in resolved_classes:
+            try:
+                bn.log.log_info(
+                    cls,
+                    "ReadTheTypesIn::search",
+                )
+            except:
+                pass
         constructors = search_structors(view, classes, task)
         bn.log.log_info(
             f"{len(constructors)} constructors identified",

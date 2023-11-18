@@ -217,6 +217,9 @@ class ImageRuntimeFunction:
         end = start + except_dir['size']
         img_rt_func_struct = view.types['Exception_Directory_Entry']
         for address in range(start, end, img_rt_func_struct.width):
+            if task is not None:
+                task.progress = f"Parsing exception directory ({address:x}/{end:x})"
+
             try:
                 irf = ImageRuntimeFunction(view, address)
                 unwind_info = irf.unwind_info

@@ -25,7 +25,8 @@ def get_function(view: bn.BinaryView, address: int):
     if view.get_data_var_at(address) is not None:
         return None
 
-    return view.create_user_function(address)
+    view.add_function(address, auto_discovered=True)
+    return view.get_recent_function_at(address)
 
 @cache
 def get_component(view: bn.BinaryView, name: tuple[str]):

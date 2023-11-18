@@ -61,7 +61,7 @@ class CatchableType(CheckedTypeDataVar,
             for type_desc in type_descriptors
         )
 
-        user_struct = cls.get_user_struct(view)
+        user_struct = cls.get_structure(view)
         ptype_offset = user_struct['pType'].offset
 
         matches = []
@@ -145,22 +145,12 @@ class CatchableTypeArray(CheckedTypeDataVar,
     name = '_CatchableTypeArray'
     alt_name = '_s_CatchableTypeArray'
 
-    length: int
-    catchable_type_array: list[CatchableType]
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.length = self['nCatchableTypes']
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
-
-        self.catchable_type_array = self['arrayOfCatchableTypes']
+    length: Annotated[int, 'nCatchableTypes']
+    catchable_type_array: Annotated[CatchableType, 'arrayOfCatchableTypes']
 
     def get_array_length(self, name: str):
         if name == 'arrayOfCatchableTypes':
-            return self.length
+            return self['nCatchableTypes']
 
         return super().get_array_length(name)
 
@@ -206,7 +196,7 @@ class CatchableTypeArray(CheckedTypeDataVar,
             for ct in catchable_types
         )
 
-        user_struct = cls.get_user_struct(view)
+        user_struct = cls.get_structure(view)
         count_type = user_struct['nCatchableTypes'].type
         pointer_type = user_struct['arrayOfCatchableTypes'].type.children[0]
 

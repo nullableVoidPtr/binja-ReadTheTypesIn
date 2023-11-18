@@ -84,9 +84,9 @@ class EnumRenderer(bn.DataRenderer):
                 return None
 
         member_offset = context[-1].offset
-        user_struct = container_type.get_user_struct(view)
+        structure = container_type.get_structure(view)
         try:
-            if (member := user_struct.member_at_offset(member_offset)) is None:
+            if (member := structure.member_at_offset(member_offset)) is None:
                 return None
         except ValueError:
             return None

@@ -77,8 +77,8 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
         view: bn.BinaryView,
         task: Optional[bn.BackgroundTask] = None
     ) -> Generator[Self, None, None]:
-        user_struct = cls.get_user_struct(view)
-        name_offset = user_struct['name'].offset
+        structure = cls.get_structure(view)
+        name_offset = structure['name'].offset
 
         matches = []
         def update_progress(processed: int, total: int) -> bool:
@@ -103,7 +103,7 @@ class TypeDescriptor(CheckedTypeDataVar, members=[
             return True
 
         def process_match(address: int, _: bn.databuffer.DataBuffer) -> bool:
-            accessor = view.typed_data_accessor(address - name_offset, user_struct)
+            accessor = view.typed_data_accessor(address - name_offset, structure)
             if is_potential_type_descriptor(accessor):
                 matches.append(accessor)
             return True

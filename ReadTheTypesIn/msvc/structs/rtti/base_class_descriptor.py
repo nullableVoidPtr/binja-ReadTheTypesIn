@@ -78,17 +78,11 @@ class BaseClassArray(CheckedTypeDataVar,
     alt_name = '_s_RTTIBaseClassArray'
 
     length: int
-    base_class_descs: list[BaseClassDescriptor]
+    base_class_descs: Annotated[list[BaseClassDescriptor], 'arrayOfBaseClassDescriptors']
 
     def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int, length: int):
-        super().__init__(view, source)
         self.length = length
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
-
-        self.base_class_descs = self['arrayOfBaseClassDescriptors']
+        super().__init__(view, source)
 
     def get_array_length(self, name: str):
         if name == 'arrayOfBaseClassDescriptors':

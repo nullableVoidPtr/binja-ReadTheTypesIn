@@ -22,22 +22,12 @@ class ScopeTable(CheckedTypeDataVar, members=[
     name = 'SCOPE_TABLE'
     alt_name = '_SCOPE_TABLE'
 
-    length: int
-    scopes: list[ScopeTableEntry]
-
-    def __init__(self, view: bn.BinaryView, source: bn.TypedDataAccessor | int):
-        super().__init__(view, source)
-        self.length = self['Count']
-        self.source = self.view.typed_data_accessor(
-            self.address,
-            self.type
-        )
-
-        self.scopes = self['ScopeRecord']
+    length: Annotated[int, 'Count']
+    scopes: Annotated[list[ScopeTableEntry], 'ScopeRecord']
 
     def get_array_length(self, name: str):
         if name == 'ScopeRecord':
-            return self.length
+            return self['Count']
 
         return super().get_array_length(name)
 
@@ -68,7 +58,7 @@ class ScopeHandlerRenderer(bn.DataRenderer):
         ):
             return False
         
-        return context[-1].offset == ScopeTableEntry.get_user_struct(view)['HandlerAddress'].offset
+        return context[-1].offset == ScopeTableEntry.get_structure(view)['HandlerAddress'].offset
 
     def perform_get_lines_for_data(self, ctxt, view, address, _type, prefix, width, context):
         for token in prefix:
